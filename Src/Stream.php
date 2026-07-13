@@ -13,15 +13,19 @@ use Temant\HttpCore\Exceptions\StreamNotWritableException;
 use Throwable;
 
 /**
- * A stream implementation that wraps PHP's native stream resources.
+ * PSR-7 stream implementation wrapping a native PHP stream resource.
  *
- * This class provides an implementation of PSR-7's StreamInterface
- * for working with PHP stream resources. It handles common stream operations
- * including reading, writing, seeking, and metadata retrieval.
+ * Unlike the other classes in this library, a `Stream` is not an immutable
+ * value object - it's a thin, stateful wrapper around whatever `fopen()`
+ * gave you, since that's what a stream actually is. `detach()` releases the
+ * underlying resource without closing it (the caller takes ownership),
+ * while `close()` releases and closes it. Readability/writability/
+ * seekability are all determined once, from the resource's own mode
+ * string, and cached for the lifetime of the wrapper.
  *
- * @package Temant\HttpCore
+ * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
-class Stream implements StreamInterface
+final class Stream implements StreamInterface
 {
     /** 
      * @var array<string, true> Readable stream modes 
@@ -110,6 +114,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function __toString(): string
     {
         try {
@@ -127,6 +132,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function close(): void
     {
         if (!isset($this->resource) || !is_resource($this->resource)) {
@@ -142,6 +148,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function detach()
     {
         if (!isset($this->resource) || !is_resource($this->resource)) {
@@ -164,6 +171,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function getSize(): ?int
     {
         if ($this->size !== null) {
@@ -190,6 +198,7 @@ class Stream implements StreamInterface
      * @throws StreamDetachedException if stream is detached
      * @throws StreamException If unable to determine position
      */
+    #[\Override]
     public function tell(): int
     {
         if (!isset($this->resource)) {
@@ -207,6 +216,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function eof(): bool
     {
         return !isset($this->resource) || feof($this->resource);
@@ -215,6 +225,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function isSeekable(): bool
     {
         return $this->seekable;
@@ -226,6 +237,7 @@ class Stream implements StreamInterface
      * @throws StreamNotSeekableException if stream is not seekable
      * @throws StreamException If seek operation fails
      */
+    #[\Override]
     public function seek(int $offset, int $whence = SEEK_SET): void
     {
         if (!isset($this->resource) || !is_resource($this->resource)) {
@@ -250,6 +262,7 @@ class Stream implements StreamInterface
      * @throws StreamNotSeekableException if stream is not seekable
      * @throws StreamException if seek operation fails
      */
+    #[\Override]
     public function rewind(): void
     {
         $this->seek(0);
@@ -258,6 +271,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function isWritable(): bool
     {
         return $this->writable;
@@ -270,6 +284,7 @@ class Stream implements StreamInterface
      * @throws StreamNotWritableException if stream is not writable
      * @throws StreamException If write operation fails
      */
+    #[\Override]
     public function write(string $string): int
     {
         if (!isset($this->resource)) {
@@ -295,6 +310,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function isReadable(): bool
     {
         return $this->readable;
@@ -308,6 +324,7 @@ class Stream implements StreamInterface
      * @throws StreamException If length is negative
      * @throws StreamException If read operation fails
      */
+    #[\Override]
     public function read(int $length): string
     {
         if (!isset($this->resource)) {
@@ -342,6 +359,7 @@ class Stream implements StreamInterface
      * @throws StreamNotReadableException if stream is not readable
      * @throws StreamException If unable to get contents
      */
+    #[\Override]
     public function getContents(): string
     {
         if (!isset($this->resource)) {
@@ -364,6 +382,7 @@ class Stream implements StreamInterface
     /**
      * @inheritDoc
      */
+    #[\Override]
     public function getMetadata(?string $key = null)
     {
         if (!isset($this->resource)) {

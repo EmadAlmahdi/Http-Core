@@ -3,7 +3,6 @@
 namespace Temant\HttpCore\Tests;
 
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 use Temant\HttpCore\Request;
 use Temant\HttpCore\Stream;
 use Psr\Http\Message\UriInterface;
@@ -206,20 +205,6 @@ final class RequestTest extends TestCase
         $this->assertSame($body, $new->getBody());
     }
 
-    public function testUpdateHostHeaderDoesNothingWhenHostEmpty(): void
-    {
-        $uri = $this->createUriMock('/path', '', ''); // empty host
-        $request = new Request('GET', $uri);
-
-        // Force call to private method via reflection
-        $ref = new \ReflectionClass($request);
-        $method = $ref->getMethod('updateHostHeader');
-        $method->setAccessible(true);
-        $method->invoke($request);
-
-        $this->assertFalse($request->hasHeader('host'));
-    }
-
     public function testWithProtocolVersionReturnsSameInstanceWhenUnchanged(): void
     {
         $uri = $this->createUriMock();
@@ -255,10 +240,42 @@ final class RequestTest extends TestCase
     public function testWithHeaderReturnsSameInstanceWhenValueUnchanged(): void
     {
         $uri = $this->createUriMock();
-        $request = new Request('GET', $uri, ['x-test' => ['value']]);
+        $request = new Request('GET', $uri, ['X-Test' => ['value']]);
 
         $same = $request->withHeader('X-Test', 'value');
         $this->assertSame($request, $same);
+    }
+
+    public function testWithHeaderPreservesExactCaseInGetHeaders(): void
+    {
+        $uri = $this->createUriMock('/test', '', '');
+        $request = new Request('GET', $uri);
+
+        $new = $request->withHeader('X-Request-Id', 'abc');
+
+        $this->assertSame(['X-Request-Id' => ['abc']], $new->getHeaders());
+        $this->assertSame(['abc'], $new->getHeader('x-request-id'));
+        $this->assertTrue($new->hasHeader('X-REQUEST-ID'));
+    }
+
+    public function testWithHeaderReplacesExistingHeaderRegardlessOfCase(): void
+    {
+        $uri = $this->createUriMock('/test', '', '');
+        $request = new Request('GET', $uri, ['x-test' => ['old']]);
+
+        $new = $request->withHeader('X-Test', 'new');
+
+        $this->assertSame(['X-Test' => ['new']], $new->getHeaders());
+    }
+
+    public function testWithAddedHeaderKeepsOriginalCaseOfExistingHeader(): void
+    {
+        $uri = $this->createUriMock('/test', '', '');
+        $request = new Request('GET', $uri, ['X-Test' => ['foo']]);
+
+        $new = $request->withAddedHeader('x-test', 'bar');
+
+        $this->assertSame(['X-Test' => ['foo', 'bar']], $new->getHeaders());
     }
 
     public function testWithoutHeaderRemovesHeader(): void
@@ -294,21 +311,6 @@ final class RequestTest extends TestCase
         $request = new Request('GET', $uri, [], $stream);
 
         $this->assertSame($stream, $request->getBody());
-    }
-
-    public function testGetBodyThrowsWhenBodyNotSet(): void
-    {
-        $uri = $this->createUriMock();
-        $request = new Request('GET', $uri, [], null);
-
-        // forcibly remove body to test exception
-        $reflection = new \ReflectionProperty($request, 'body');
-        $reflection->setAccessible(true);
-        $reflection->setValue($request, null);
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Message body is not set');
-        $request->getBody();
     }
 
     public function testWithBodyClonesAndSetsNewStream(): void

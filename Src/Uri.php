@@ -7,133 +7,180 @@ namespace Temant\HttpCore;
 use InvalidArgumentException;
 use Psr\Http\Message\UriInterface;
 use Stringable;
+use Uri\Rfc3986\Uri as NativeUri;
 
 /**
- * Simple PSR-7 compatible URI implementation.
+ * A PSR-7 compatible, immutable URI value object.
  *
- * This class implements the behaviour expected from PSR-7 UriInterface:
- * - immutable with*() methods returning a cloned instance
- * - getters returning normalized values
+ * Every `with*()` method returns a new instance (via PHP 8.5's `clone with`
+ * syntax) instead of mutating the current one, and every getter returns an
+ * already-normalized value, exactly as PSR-7's `UriInterface` requires.
  *
- * It intentionally keeps a minimal surface for RFC3986 handling while
- * providing reasonable validation and normalization.
+ * ## Why this isn't a thin wrapper around PHP 8.5's native `Uri` extension
+ *
+ * PHP 8.5 ships two native URI parsers, and this class deliberately uses
+ * only one of them, and only for one job:
+ *
+ * - **Parsing a full URI string** (the constructor) delegates to
+ *   `Uri\Rfc3986\Uri::parse()`. That's a real RFC 3986 parser and is
+ *   strictly more correct than the historically quirky `parse_url()` it
+ *   replaces (better handling of IPv6 literals, malformed input, etc.),
+ *   with no PSR-7 trade-off: parsing doesn't need to be forgiving.
+ * - **Mutating a single component** (`withPath()`, `withUserInfo()`, ...)
+ *   deliberately does *not* delegate to either native class, because
+ *   neither one matches what PSR-7 requires here:
+ *   - `Uri\Rfc3986\Uri`'s `with*()` methods *reject* raw, unencoded input
+ *     (they throw on a literal space instead of encoding it), whereas
+ *     PSR-7 requires `withPath()` etc. to accept raw input and encode it.
+ *   - `Uri\WhatWg\Url`'s `with*()` methods do auto-encode, but the WHATWG
+ *     URL Standard also silently resolves `.`/`..` path segments and
+ *     cannot represent a bare relative reference (a path with no scheme)
+ *     at all — both of which PSR-7's `UriInterface` explicitly requires
+ *     this class to support unchanged.
+ *
+ *   So component encoding stays hand-rolled here (`filterPath()`,
+ *   userinfo encoding, the scheme regex). It's also cheaper: these are
+ *   plain string operations on an already-parsed value, versus
+ *   constructing and validating a whole new native URI object per call.
  */
 final class Uri implements UriInterface, Stringable
 {
+    /**
+     * Default port per scheme; {@see getPort()} hides the port when it
+     * matches this table, per PSR-7's "normalized" port semantics.
+     */
     private const array STANDARD_PORTS = [
         'http' => 80,
         'https' => 443,
         'ftp' => 21,
     ];
 
-    private string $scheme = '';
-    private string $userInfo = '';
-    private string $host = '';
-    private ?int $port = null;
-    private string $path = '';
-    private string $query = '';
-    private string $fragment = '';
+    private const string SCHEME_PATTERN = '/^[a-z][a-z0-9+\-.]*$/i';
+
+    /** Characters `rawurlencode()` never touches. */
+    private const string UNRESERVED_PATTERN = '/^[A-Za-z0-9\-._~]*$/';
+
+    /**
+     * Same as {@see UNRESERVED_PATTERN}, plus the path separator. Used to
+     * skip encoding entirely for the common case of an already-clean path
+     * (e.g. `/api/v1/users/123`).
+     */
+    private const string PATH_SAFE_PATTERN = '/^[A-Za-z0-9\-._~\/]*$/';
+
+    private readonly string $scheme;
+    private readonly string $userInfo;
+    private readonly string $host;
+    private readonly ?int $port;
+    private readonly string $path;
+    private readonly string $query;
+    private readonly string $fragment;
 
     public function __construct(string $uri = '')
     {
-        if ($uri !== '') {
-            $parts = parse_url($uri);
-            if ($parts === false || (!isset($parts['host']) && !isset($parts['path']))) {
-                throw new InvalidArgumentException("Invalid URI: {$uri}");
-            }
+        if ($uri === '') {
+            $this->scheme = '';
+            $this->userInfo = '';
+            $this->host = '';
+            $this->port = null;
+            $this->path = '';
+            $this->query = '';
+            $this->fragment = '';
+            return;
+        }
 
-            // @phpstan-ignore greater.alwaysFalse
-            if (isset($parts['port']) && ($parts['port'] < 1 || $parts['port'] > 65535)) {
-                throw new InvalidArgumentException('Invalid port number in URI');
-            }
+        $parsed = NativeUri::parse($uri);
+        if ($parsed === null) {
+            throw new InvalidArgumentException("Invalid URI: {$uri}");
+        }
 
-            $this->applyParts($parts);
+        $host = $parsed->getRawHost() ?? '';
+        $path = $parsed->getRawPath();
+        if ($host === '' && $path === '') {
+            throw new InvalidArgumentException("Invalid URI: {$uri}");
+        }
+
+        $port = $parsed->getPort();
+        $this->validatePort($port);
+
+        $this->scheme = strtolower($parsed->getScheme() ?? '');
+        $this->userInfo = $this->encodeUserInfo($parsed->getRawUsername(), $parsed->getRawPassword());
+        $this->host = strtolower($host);
+        $this->port = $port;
+        $this->path = $this->filterPath($path);
+        $this->query = $parsed->getQuery() ?? '';
+        $this->fragment = $parsed->getFragment() ?? '';
+    }
+
+    /**
+     * Builds the encoded userinfo component from raw username/password parts.
+     */
+    private function encodeUserInfo(?string $user, ?string $pass): string
+    {
+        if ($user === null || $user === '') {
+            return '';
+        }
+
+        return $pass !== null && $pass !== ''
+            ? $this->encodeUserComponent($user) . ':' . $this->encodeUserComponent($pass)
+            : $this->encodeUserComponent($user);
+    }
+
+    /**
+     * Percent-encodes a single userinfo sub-component (username or password),
+     * skipping `rawurlencode()` when the value is already unreserved-only.
+     */
+    private function encodeUserComponent(string $value): string
+    {
+        return preg_match(self::UNRESERVED_PATTERN, $value) === 1 ? $value : rawurlencode($value);
+    }
+
+    /**
+     * @throws InvalidArgumentException if port is invalid
+     */
+    private function validatePort(?int $port): void
+    {
+        if ($port !== null && ($port < 1 || $port > 65535)) {
+            throw new InvalidArgumentException('Invalid port number in URI');
         }
     }
 
-    /**
-     * Applies parsed URI components to the object properties.
-     *
-     * @param array{
-     *     scheme?: string,
-     *     user?: string,
-     *     pass?: string,
-     *     host?: string,
-     *     port?: int,
-     *     path?: string,
-     *     query?: string,
-     *     fragment?: string
-     * } $parts Parsed URI components as returned by parse_url().
-     *
-     * @return void
-     * @throws InvalidArgumentException if port is invalid
-     */
-    private function applyParts(array $parts): void
-    {
-        $this->scheme = isset($parts['scheme']) ? strtolower($parts['scheme']) : '';
-
-        $user = $parts['user'] ?? null;
-        $pass = $parts['pass'] ?? null;
-        $this->userInfo = $user !== null
-            ? ($pass !== null
-                ? rawurlencode($user) . ':' . rawurlencode($pass)
-                : rawurlencode($user))
-            : '';
-
-        $this->host = isset($parts['host']) ? strtolower($parts['host']) : '';
-        $this->port = $parts['port'] ?? null;
-        $this->path = isset($parts['path']) ? $this->filterPath($parts['path']) : '';
-        $this->query = $parts['query'] ?? '';
-        $this->fragment = $parts['fragment'] ?? '';
-    }
-
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getScheme(): string
     {
         return $this->scheme;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getAuthority(): string
     {
         if ($this->host === '') {
             return '';
         }
 
-        $authority = $this->userInfo !== '' ? $this->userInfo . '@' : '';
+        $authority = $this->userInfo !== '' ? "{$this->userInfo}@" : '';
         $authority .= $this->host;
 
         $port = $this->getPort();
         if ($port !== null) {
-            $authority .= ':' . $port;
+            $authority .= ":{$port}";
         }
 
         return $authority;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getUserInfo(): string
     {
         return $this->userInfo;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getHost(): string
     {
         return $this->host;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getPort(): ?int
     {
         return $this->port !== null
@@ -143,78 +190,54 @@ final class Uri implements UriInterface, Stringable
             : null;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getPath(): string
     {
         return $this->path;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getQuery(): string
     {
         return $this->query;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    #[\Override]
     public function getFragment(): string
     {
         return $this->fragment;
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * @param string $scheme scheme component (e.g. "http", "https")
-     * @return static
      * @throws InvalidArgumentException for invalid scheme
      */
+    #[\Override]
     public function withScheme(string $scheme): static
     {
         $scheme = strtolower($scheme);
-        if ($scheme !== '' && !preg_match('/^[a-z][a-z0-9+\-.]*$/i', $scheme)) {
-            throw new InvalidArgumentException('Invalid scheme "' . $scheme . '"');
+        if ($scheme !== '' && !preg_match(self::SCHEME_PATTERN, $scheme)) {
+            throw new InvalidArgumentException("Invalid scheme \"{$scheme}\"");
         }
         if ($this->scheme === $scheme) {
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->scheme = $scheme;
-        return $clone;
+        return clone($this, ['scheme' => $scheme]);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * @param string      $user
-     * @param string|null $password
-     * @return static
-     */
+    #[\Override]
     public function withUserInfo(string $user, ?string $password = null): static
     {
-        $u = rawurlencode($user);
-        $newUserInfo = $password !== null ? $u . ':' . rawurlencode($password) : $u;
+        $encodedUser = $this->encodeUserComponent($user);
+        $newUserInfo = $password !== null ? "{$encodedUser}:" . $this->encodeUserComponent($password) : $encodedUser;
         if ($newUserInfo === $this->userInfo) {
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->userInfo = $newUserInfo;
-        return $clone;
+        return clone($this, ['userInfo' => $newUserInfo]);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * @param string $host
-     * @return static
-     */
+    #[\Override]
     public function withHost(string $host): static
     {
         $host = strtolower($host);
@@ -222,38 +245,24 @@ final class Uri implements UriInterface, Stringable
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->host = $host;
-        return $clone;
+        return clone($this, ['host' => $host]);
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * @param int|null $port
-     * @return static
      * @throws InvalidArgumentException on invalid port value
      */
+    #[\Override]
     public function withPort(?int $port): static
     {
-        if ($port !== null && ($port < 1 || $port > 65535)) {
-            throw new InvalidArgumentException('Invalid port number');
-        }
+        $this->validatePort($port);
         if ($port === $this->port) {
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->port = $port;
-        return $clone;
+        return clone($this, ['port' => $port]);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * @param string $path
-     * @return static
-     */
+    #[\Override]
     public function withPath(string $path): static
     {
         $filtered = $this->filterPath($path);
@@ -261,17 +270,10 @@ final class Uri implements UriInterface, Stringable
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->path = $filtered;
-        return $clone;
+        return clone($this, ['path' => $filtered]);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * @param string $query
-     * @return static
-     */
+    #[\Override]
     public function withQuery(string $query): static
     {
         $trimmed = ltrim($query, '?');
@@ -279,17 +281,10 @@ final class Uri implements UriInterface, Stringable
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->query = $trimmed;
-        return $clone;
+        return clone($this, ['query' => $trimmed]);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * @param string $fragment
-     * @return static
-     */
+    #[\Override]
     public function withFragment(string $fragment): static
     {
         $trimmed = ltrim($fragment, '#');
@@ -297,51 +292,42 @@ final class Uri implements UriInterface, Stringable
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->fragment = $trimmed;
-        return $clone;
+        return clone($this, ['fragment' => $trimmed]);
     }
 
+    #[\Override]
     public function __toString(): string
     {
-        $uri = '';
-        $scheme = $this->scheme;
-        if ($scheme !== '') {
-            $uri = $scheme . ':';
-        }
+        $uri = $this->scheme !== '' ? "{$this->scheme}:" : '';
 
         $authority = $this->getAuthority();
         if ($authority !== '') {
-            $uri .= '//' . $authority;
+            $uri .= "//{$authority}";
         }
 
         $uri .= $this->path;
 
-        $query = $this->query;
-        if ($query !== '') {
-            $uri .= '?' . $query;
+        if ($this->query !== '') {
+            $uri .= "?{$this->query}";
         }
 
-        $fragment = $this->fragment;
-        if ($fragment !== '') {
-            $uri .= '#' . $fragment;
+        if ($this->fragment !== '') {
+            $uri .= "#{$this->fragment}";
         }
 
         return $uri;
     }
 
     /**
-     * Minimal path filter: keeps "/" and encodes other characters using rawurlencode
+     * Percent-encodes a raw path, leaving "/" separators intact.
      *
-     * This method splits the path by "/" and encodes each segment individually,
-     * preserving the "/" separators.
-     *
-     * @param string $path The path component to filter/encode.
-     * @return string The filtered (encoded) path.
+     * Most real-world paths (`/api/v1/users/123`) are already made up
+     * entirely of unreserved characters, so the common case bails out
+     * before ever calling `rawurlencode()`.
      */
     private function filterPath(string $path): string
     {
-        if ($path === '' || $path === '/') {
+        if ($path === '' || preg_match(self::PATH_SAFE_PATTERN, $path) === 1) {
             return $path;
         }
 

@@ -12,15 +12,18 @@ use InvalidArgumentException;
 /**
  * PSR-7 Uploaded File implementation.
  *
- * Represents an uploaded file according to the PSR-7 specification.
- * Provides functionality for handling files uploaded through HTTP requests,
- * including stream access and file movement operations.
+ * Wraps one entry from a file upload, whether it came from `$_FILES`
+ * (via {@see \Temant\HttpCore\Factory\UploadedFileFactory}) or was built
+ * directly from a stream or path. A file can only be moved once:
+ * {@see moveTo()} marks it as moved, and both `moveTo()` and
+ * {@see getStream()} refuse to run again afterward, mirroring how PHP's
+ * own `move_uploaded_file()` behaves for a real upload.
  *
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 final class UploadedFile implements UploadedFileInterface
 {
-    private StreamInterface $stream;
+    private readonly StreamInterface $stream;
     private bool $moved = false;
 
     /**
@@ -36,10 +39,10 @@ final class UploadedFile implements UploadedFileInterface
      */
     public function __construct(
         StreamInterface|string $stream,
-        private ?string $clientFilename,
-        private ?string $clientMediaType,
-        private ?int $size,
-        private int $error
+        private readonly ?string $clientFilename,
+        private readonly ?string $clientMediaType,
+        private readonly ?int $size,
+        private readonly int $error
     ) {
         if ($error < \UPLOAD_ERR_OK || $error > \UPLOAD_ERR_EXTENSION) {
             throw new InvalidArgumentException('Invalid upload error code.');
@@ -56,9 +59,7 @@ final class UploadedFile implements UploadedFileInterface
         }
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getStream(): StreamInterface
     {
         if ($this->moved) {
@@ -70,9 +71,7 @@ final class UploadedFile implements UploadedFileInterface
         return $this->stream;
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function moveTo(string $targetPath): void
     {
         if ($this->moved) {
@@ -101,33 +100,25 @@ final class UploadedFile implements UploadedFileInterface
         $this->moved = true;
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getSize(): ?int
     {
         return $this->size;
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getError(): int
     {
         return $this->error;
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getClientFilename(): ?string
     {
         return $this->clientFilename;
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getClientMediaType(): ?string
     {
         return $this->clientMediaType;

@@ -10,11 +10,17 @@ use Psr\Http\Message\UploadedFileFactoryInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Temant\HttpCore\UploadedFile;
 
+/**
+ * PSR-17 factory for {@see UploadedFile} instances, built from an
+ * already-open, readable stream (with a real underlying file so it can
+ * later be moved).
+ */
 class UploadedFileFactory implements UploadedFileFactoryInterface
 {
     /**
      * {@inheritdoc}
      */
+    #[\Override]
     public function createUploadedFile(
         StreamInterface $stream,
         ?int $size = null,

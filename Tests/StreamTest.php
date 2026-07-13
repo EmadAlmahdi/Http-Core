@@ -23,14 +23,10 @@ class StreamTest extends TestCase
     public function testConstructorWithInvalidResourceType(): void
     {
         $this->expectException(StreamException::class);
-        $handler = curl_init();
 
-        try {
-            new Stream($handler); // @phpstan-ignore argument.type
-        }
-        finally {
-            curl_close($handler);
-        }
+        // Since PHP 8.0, curl_init() returns a CurlHandle object rather than
+        // a resource, making it a convenient non-resource value to test with.
+        new Stream(curl_init()); // @phpstan-ignore argument.type
     }
 
     public function testToStringAndEmptyAfterDetach(): void
@@ -260,7 +256,6 @@ class StreamTest extends TestCase
 
         $stream = new Stream($resource);
         $ref = ReflectionMethod::createFromMethodName($stream::class . '::write');
-        $ref->setAccessible(true);
         $this->expectException(StreamException::class);
         $stream->write('data');
     }

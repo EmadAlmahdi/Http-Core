@@ -30,7 +30,7 @@ final class ServerRequestTest extends TestCase
         $this->assertSame('GET', $request->getMethod());
         $this->assertSame('/test', $request->getRequestTarget());
         $this->assertSame($uri, $request->getUri());
-        $this->assertSame(['host' => ['example.com']], $request->getHeaders());
+        $this->assertSame(['Host' => ['example.com']], $request->getHeaders());
         $this->assertInstanceOf(Stream::class, $request->getBody());
         $this->assertSame([], $request->getServerParams());
         $this->assertSame([], $request->getCookieParams());

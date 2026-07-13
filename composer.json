@@ -3,7 +3,8 @@
     "description": "PSR-7 & PSR-17 Implementation",
     "type": "library",
     "require": {
-        "php": "^8.4",
+        "php": "^8.5",
+        "ext-uri": "*",
         "psr/http-message": "^2.0",
         "psr/http-factory": "^1.1"
     },

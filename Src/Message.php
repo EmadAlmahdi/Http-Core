@@ -10,172 +10,197 @@ use RuntimeException;
 use InvalidArgumentException;
 
 /**
- * Base PSR-7 Message implementation.
+ * Shared plumbing for {@see Request} and {@see Response}: protocol version,
+ * headers, and the body stream.
  *
- * Provides common functionality for HTTP messages (Request and Response) including:
- * - Protocol version handling
- * - Header management (case-insensitive)
- * - Message body management via streams
+ * Header lookups (`hasHeader()`, `getHeader()`, ...) are case-insensitive,
+ * as PSR-7 requires, via a small lowercase-name index kept alongside the
+ * real storage. `getHeaders()` returns the headers keyed by the *exact*
+ * casing they were last set with (also a PSR-7 requirement, easy to miss
+ * since it's easy to accidentally normalize away) - `withHeader('Content-Type', ...)`
+ * means `getHeaders()` comes back with a `Content-Type` key, not `content-type`.
+ *
+ * Everything here is `readonly`; every `with*()` method returns a fresh
+ * instance rather than mutating the one it was called on.
  *
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 abstract class Message implements MessageInterface
 {
-    /**
-     * HTTP headers (lowercased name => array of values)
-     *
-     * @var array<string, string[]>
-     */
-    protected array $headers = [];
-
-    /**
-     * Message body stream
-     *
-     * @var StreamInterface|null
-     */
-    protected ?StreamInterface $body = null;
-
-    /**
-     * HTTP protocol version (e.g., '1.0', '1.1', '2')
-     *
-     * @var string
-     */
-    public string $protocolVersion = '1.1';
-
     private const string PROTOCOL_PATTERN = '/^(1\.[01]|2(?:\.0)?)$/';
 
     private const string HEADER_VALUE_PATTERN = "/[\r\n]/";
 
     /**
-     * @inheritDoc
+     * Header values, keyed by the exact name they were last set with.
+     *
+     * @var array<string, string[]>
      */
+    protected readonly array $headers;
+
+    /**
+     * Case-insensitive lookup index: lowercased name => the exact-case key
+     * currently used for it in {@see $headers}.
+     *
+     * @var array<string, string>
+     */
+    protected readonly array $headerNames;
+
+    protected readonly StreamInterface $body;
+
+    /**
+     * HTTP protocol version (e.g., '1.0', '1.1', '2')
+     */
+    protected readonly string $protocolVersion;
+
+    /**
+     * @param array<string, string[]> $headers
+     * @throws InvalidArgumentException For invalid protocol versions
+     * @throws RuntimeException When no body is given and a default stream cannot be created
+     */
+    protected function __construct(array $headers, ?StreamInterface $body, string $protocolVersion)
+    {
+        $normalizedHeaders = [];
+        $headerNames = [];
+        foreach ($headers as $name => $value) {
+            $name = (string) $name;
+            $normalizedHeaders[$name] = $value;
+            $headerNames[strtolower($name)] = $name;
+        }
+
+        $this->headers = $normalizedHeaders;
+        $this->headerNames = $headerNames;
+        $this->body = $body ?? $this->createDefaultBodyStream();
+        $this->protocolVersion = $this->filterProtocolVersion($protocolVersion);
+    }
+
+    #[\Override]
     public function getProtocolVersion(): string
     {
         return $this->protocolVersion;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function withProtocolVersion(string $version): MessageInterface
+    #[\Override]
+    public function withProtocolVersion(string $version): static
     {
         if ($this->protocolVersion === $version) {
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->protocolVersion = $this->filterProtocolVersion($version);
-        return $clone;
+        return clone($this, ['protocolVersion' => $this->filterProtocolVersion($version)]);
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getHeaders(): array
     {
         return $this->headers;
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function hasHeader(string $name): bool
     {
-        return isset($this->headers[strtolower($name)]);
+        return isset($this->headerNames[strtolower($name)]);
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getHeader(string $name): array
     {
-        return $this->headers[strtolower($name)] ?? [];
+        $exact = $this->headerNames[strtolower($name)] ?? null;
+        return $exact !== null ? $this->headers[$exact] : [];
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getHeaderLine(string $name): string
     {
         $header = $this->getHeader($name);
         return $header ? implode(', ', $header) : '';
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function withHeader(string $name, $value): MessageInterface
+    #[\Override]
+    public function withHeader(string $name, $value): static
     {
-        $normalized = strtolower($name);
+        $lower = strtolower($name);
         $value = $this->filterHeaderValue($value);
+        $existing = $this->headerNames[$lower] ?? null;
 
         // Prevent unnecessary cloning
-        if (isset($this->headers[$normalized]) && $this->headers[$normalized] === $value) {
+        if ($existing === $name && ($this->headers[$existing] ?? null) === $value) {
             return $this;
         }
 
-        $clone = clone $this;
-        // Preserve original case of header name for output
-        $clone->headers[$normalized] = $value;
-        return $clone;
+        $headers = $this->headers;
+        if ($existing !== null) {
+            unset($headers[$existing]);
+        }
+        $headers[$name] = $value;
+
+        return clone($this, [
+            'headers' => $headers,
+            'headerNames' => [...$this->headerNames, $lower => $name],
+        ]);
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function withAddedHeader(string $name, $value): MessageInterface
+    #[\Override]
+    public function withAddedHeader(string $name, $value): static
     {
-        $normalized = strtolower($name);
+        $lower = strtolower($name);
         $value = $this->filterHeaderValue($value);
+        $existing = $this->headerNames[$lower] ?? null;
 
-        $clone = clone $this;
-        $clone->headers[$normalized] = isset($clone->headers[$normalized])
-            ? array_merge($clone->headers[$normalized], $value)
-            : $value;
+        if ($existing !== null) {
+            return clone($this, ['headers' => [
+                ...$this->headers,
+                $existing => [...$this->headers[$existing], ...$value],
+            ]]);
+        }
 
-        return $clone;
+        return clone($this, [
+            'headers' => [...$this->headers, $name => $value],
+            'headerNames' => [...$this->headerNames, $lower => $name],
+        ]);
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function withoutHeader(string $name): MessageInterface
+    #[\Override]
+    public function withoutHeader(string $name): static
     {
-        $normalized = strtolower($name);
+        $lower = strtolower($name);
+        $existing = $this->headerNames[$lower] ?? null;
 
-        if (!isset($this->headers[$normalized])) {
+        if ($existing === null) {
             return $this;
         }
 
-        $clone = clone $this;
-        unset($clone->headers[$normalized]);
-        return $clone;
+        $headers = $this->headers;
+        unset($headers[$existing]);
+
+        $headerNames = $this->headerNames;
+        unset($headerNames[$lower]);
+
+        return clone($this, ['headers' => $headers, 'headerNames' => $headerNames]);
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getBody(): StreamInterface
     {
-        return $this->body ?? throw new RuntimeException('Message body is not set');
+        return $this->body;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function withBody(StreamInterface $body): MessageInterface
+    #[\Override]
+    public function withBody(StreamInterface $body): static
     {
         if ($this->body === $body) {
             return $this;
         }
 
-        $clone = clone $this;
-        $clone->body = $body;
-        return $clone;
+        return clone($this, ['body' => $body]);
     }
 
     /**
-     * Filter and validate header values
+     * Filter and validate header values.
+     *
+     * Normalizes to a list of strings in a single pass (rather than
+     * validating and then mapping separately) and rejects anything
+     * containing a CR or LF, which would otherwise allow header injection.
      *
      * @param string|string[] $value
      * @return string[]
@@ -183,12 +208,13 @@ abstract class Message implements MessageInterface
      */
     protected function filterHeaderValue(array|string $value): array
     {
-        $values = is_array($value) ? $value : [$value];
+        $values = \is_array($value) ? $value : [$value];
 
         if (empty($values) || $value === '') {
             throw new InvalidArgumentException('Header value cannot be empty');
         }
 
+        $normalized = [];
         foreach ($values as $item) {
             $item = (string) $item;
             if (preg_match(self::HEADER_VALUE_PATTERN, $item)) {
@@ -196,9 +222,10 @@ abstract class Message implements MessageInterface
                     'Header values cannot contain CR or LF characters'
                 );
             }
+            $normalized[] = $item;
         }
 
-        return array_map('strval', $values);
+        return $normalized;
     }
 
     /**

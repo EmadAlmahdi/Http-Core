@@ -12,6 +12,12 @@ use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
 use Temant\HttpCore\Request;
 
+/**
+ * PSR-17 factory for outgoing {@see Request} instances.
+ *
+ * Accepts either a URI string or an existing `UriInterface`; a string is
+ * turned into one via the injected {@see UriFactoryInterface}.
+ */
 class RequestFactory implements RequestFactoryInterface
 {
     /**
@@ -27,6 +33,7 @@ class RequestFactory implements RequestFactoryInterface
     /**
      * {@inheritdoc}
      */
+    #[\Override]
     public function createRequest(string $method, $uri): RequestInterface
     {
         if (is_string($uri)) {

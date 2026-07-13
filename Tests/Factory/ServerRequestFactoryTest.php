@@ -259,7 +259,6 @@ class ServerRequestFactoryTest extends ServerRequestFactoryTestCase
 
         $reflection = new \ReflectionClass($factory);
         $method = $reflection->getMethod('normalizeFiles');
-        $method->setAccessible(true);
 
         $method->invoke($factory, ['file' => 'invalid']);
     }
@@ -273,7 +272,6 @@ class ServerRequestFactoryTest extends ServerRequestFactoryTestCase
 
         $reflection = new \ReflectionClass($factory);
         $method = $reflection->getMethod('createUploadedFileFromSpec');
-        $method->setAccessible(true);
 
         $method->invoke($factory, ['name' => 'test.txt']);
     }
@@ -287,7 +285,6 @@ class ServerRequestFactoryTest extends ServerRequestFactoryTestCase
 
         $reflection = new \ReflectionClass($factory);
         $method = $reflection->getMethod('createUploadedFileFromSpec');
-        $method->setAccessible(true);
 
         $method->invoke($factory, [
             'tmp_name' => '/invalid/path',
@@ -311,7 +308,6 @@ class ServerRequestFactoryTest extends ServerRequestFactoryTestCase
 
         $reflection = new \ReflectionClass($factory);
         $method = $reflection->getMethod('createUploadedFileFromSpec');
-        $method->setAccessible(true);
 
         try {
             $result = $method->invoke($factory, [
@@ -341,7 +337,6 @@ class ServerRequestFactoryTest extends ServerRequestFactoryTestCase
 
         $reflection = new \ReflectionClass($factory);
         $method = $reflection->getMethod('createUploadedFileFromSpec');
-        $method->setAccessible(true);
 
         if (PHP_SAPI === 'cli') {
             $this->mockIsUploadedFile(true);
@@ -371,7 +366,6 @@ class ServerRequestFactoryTest extends ServerRequestFactoryTestCase
 
         $reflection = new \ReflectionClass($factory);
         $method = $reflection->getMethod('createUploadedFileFromSpec');
-        $method->setAccessible(true);
 
         if (PHP_SAPI === 'cli') {
             $this->mockIsUploadedFile(true);

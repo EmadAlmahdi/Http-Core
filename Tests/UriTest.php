@@ -94,7 +94,6 @@ final class UriTest extends TestCase
         $uri = new Uri();
         $reflection = new \ReflectionClass($uri);
         $method = $reflection->getMethod('filterPath');
-        $method->setAccessible(true);
 
         $result = $method->invoke($uri, '/path with space');
         $this->assertSame('/path%20with%20space', $result);
@@ -124,7 +123,6 @@ final class UriTest extends TestCase
     {
         $uri = new Uri();
         $method = ReflectionMethod::createFromMethodName($uri::class . "::filterPath");
-        $method->setAccessible(true);
 
         $exec = $method->invoke($uri, '');
 
@@ -232,7 +230,6 @@ final class UriTest extends TestCase
         $uri = new Uri();
         $reflection = new \ReflectionClass($uri);
         $method = $reflection->getMethod('filterPath');
-        $method->setAccessible(true);
 
         $result = $method->invoke($uri, '');
         $this->assertSame('', $result);

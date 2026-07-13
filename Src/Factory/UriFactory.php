@@ -8,11 +8,15 @@ use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
 use Temant\HttpCore\Uri;
 
+/**
+ * PSR-17 factory for {@see Uri} instances.
+ */
 class UriFactory implements UriFactoryInterface
 {
     /**
      * {@inheritdoc}
      */
+    #[\Override]
     public function createUri(string $uri = ''): UriInterface
     {
         return new Uri($uri);

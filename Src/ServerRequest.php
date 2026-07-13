@@ -13,16 +13,20 @@ use Psr\Http\Message\UriInterface;
 /**
  * PSR-7 HTTP Server Request implementation.
  *
- * Represents an incoming HTTP request from a server environment,
- * including server parameters, cookies, query string arguments,
- * uploaded files, parsed body, and custom attributes.
+ * Everything {@see Request} offers, plus the extra state that only exists
+ * once a request has actually arrived at a server: the raw `$_SERVER`-style
+ * parameters, cookies, query parameters, uploaded files, a parsed body, and
+ * an arbitrary attribute bag middleware can use to pass data down the
+ * pipeline (routing results, an authenticated user, and so on). Build one
+ * from PHP's superglobals with {@see \Temant\HttpCore\Factory\ServerRequestFactory::fromGlobals()}.
  */
 final class ServerRequest extends Request implements ServerRequestInterface
 {
     /** @var array<string, mixed> */
-    private array $attributes = [];
+    private readonly array $attributes;
 
     /**
+     * @param string|HttpMethod $method
      * @param array<mixed> $serverParams
      * @param array<mixed> $cookieParams
      * @param array<mixed> $queryParams
@@ -30,25 +34,27 @@ final class ServerRequest extends Request implements ServerRequestInterface
      * @param array<mixed>|object|null $parsedBody
      */
     public function __construct(
-        string $method,
+        string|HttpMethod $method,
         UriInterface $uri,
-        private array $serverParams = [],
+        private readonly array $serverParams = [],
         array $headers = [],
         ?StreamInterface $body = null,
         string $protocolVersion = '1.1',
-        private array $cookieParams = [],
-        private array $queryParams = [],
-        private array $uploadedFiles = [],
-        private array|object|null $parsedBody = null
+        private readonly array $cookieParams = [],
+        private readonly array $queryParams = [],
+        private readonly array $uploadedFiles = [],
+        private readonly array|object|null $parsedBody = null
     ) {
         parent::__construct($method, $uri, $headers, $body, $protocolVersion);
+        $this->attributes = [];
     }
 
     /**
      * @inheritDoc
-     * 
+     *
      * @return array<mixed>
      */
+    #[\Override]
     public function getServerParams(): array
     {
         return $this->serverParams;
@@ -56,9 +62,10 @@ final class ServerRequest extends Request implements ServerRequestInterface
 
     /**
      * @inheritDoc
-     * 
+     *
      * @return array<mixed>
      */
+    #[\Override]
     public function getCookieParams(): array
     {
         return $this->cookieParams;
@@ -66,21 +73,21 @@ final class ServerRequest extends Request implements ServerRequestInterface
 
     /**
      * @inheritDoc
-     * 
+     *
      * @param array<string, string> $cookies
      */
-    public function withCookieParams(array $cookies): self
+    #[\Override]
+    public function withCookieParams(array $cookies): static
     {
-        $clone = clone $this;
-        $clone->cookieParams = $cookies;
-        return $clone;
+        return clone($this, ['cookieParams' => $cookies]);
     }
 
     /**
      * @inheritDoc
-     * 
+     *
      * @return array<mixed>
      */
+    #[\Override]
     public function getQueryParams(): array
     {
         return $this->queryParams;
@@ -88,21 +95,21 @@ final class ServerRequest extends Request implements ServerRequestInterface
 
     /**
      * @inheritDoc
-     * 
+     *
      * @param array<string, mixed> $query
      */
-    public function withQueryParams(array $query): self
+    #[\Override]
+    public function withQueryParams(array $query): static
     {
-        $clone = clone $this;
-        $clone->queryParams = $query;
-        return $clone;
+        return clone($this, ['queryParams' => $query]);
     }
 
     /**
      * @inheritDoc
-     * 
+     *
      * @return array<UploadedFileInterface>
      */
+    #[\Override]
     public function getUploadedFiles(): array
     {
         return $this->uploadedFiles;
@@ -110,21 +117,21 @@ final class ServerRequest extends Request implements ServerRequestInterface
 
     /**
      * @inheritDoc
-     * 
+     *
      * @param array<UploadedFileInterface> $uploadedFiles
      */
-    public function withUploadedFiles(array $uploadedFiles): self
+    #[\Override]
+    public function withUploadedFiles(array $uploadedFiles): static
     {
-        $clone = clone $this;
-        $clone->uploadedFiles = $uploadedFiles;
-        return $clone;
+        return clone($this, ['uploadedFiles' => $uploadedFiles]);
     }
 
     /**
      * @inheritDoc
-     * 
+     *
      * @return array<mixed>|object|null
      */
+    #[\Override]
     public function getParsedBody(): array|object|null
     {
         return $this->parsedBody;
@@ -132,12 +139,13 @@ final class ServerRequest extends Request implements ServerRequestInterface
 
     /**
      * @inheritDoc
-     * 
+     *
      * @param array<string, mixed>|object|null $data
-     * 
+     *
      * @throws InvalidArgumentException if $data is not an array, object
      */
-    public function withParsedBody($data): self
+    #[\Override]
+    public function withParsedBody($data): static
     {
         if ($data === null) {
             return $this;
@@ -148,46 +156,42 @@ final class ServerRequest extends Request implements ServerRequestInterface
             throw new InvalidArgumentException('Parsed body must be array, object, or null');
         }
 
-        $clone = clone $this;
-        $clone->parsedBody = $data;
-        return $clone;
+        return clone($this, ['parsedBody' => $data]);
     }
 
     /**
      * @inheritDoc
-     * 
+     *
      * @return array<string, mixed>
      */
+    #[\Override]
     public function getAttributes(): array
     {
         return $this->attributes;
     }
 
-    /**
-     * @inheritDoc
-     */
+    #[\Override]
     public function getAttribute(string $name, mixed $default = null): mixed
     {
+        /** @phpstan-ignore nullCoalesce.offset (phpstan doesn't yet track PHP 8.5 clone-with reinitialization of readonly properties) */
         return $this->attributes[$name] ?? $default;
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function withAttribute(string $name, mixed $value): self
+    #[\Override]
+    public function withAttribute(string $name, mixed $value): static
     {
-        $clone = clone $this;
-        $clone->attributes[$name] = $value;
-        return $clone;
+        return clone($this, ['attributes' => [...$this->attributes, $name => $value]]);
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function withoutAttribute(string $name): self
+    #[\Override]
+    public function withoutAttribute(string $name): static
     {
-        $clone = clone $this;
-        unset($clone->attributes[$name]);
-        return $clone;
+        if (!array_key_exists($name, $this->attributes)) {
+            return $this;
+        }
+
+        $attributes = $this->attributes;
+        unset($attributes[$name]);
+        return clone($this, ['attributes' => $attributes]);
     }
 }

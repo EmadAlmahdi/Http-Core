@@ -14,6 +14,14 @@ use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
 use Temant\HttpCore\ServerRequest;
 
+/**
+ * PSR-17 factory for {@see ServerRequest} instances.
+ *
+ * Use {@see createServerRequest()} when you already have the pieces
+ * (method, URI, server params) in hand, or the static
+ * {@see fromGlobals()} to build one straight from PHP's superglobals -
+ * that's the one you want at the front controller of a real application.
+ */
 class ServerRequestFactory implements ServerRequestFactoryInterface
 {
     public function __construct(
@@ -27,6 +35,7 @@ class ServerRequestFactory implements ServerRequestFactoryInterface
      * {@inheritdoc}
      * @param array<string, mixed> $serverParams
      */
+    #[\Override]
     public function createServerRequest(string $method, $uri, array $serverParams = []): ServerRequestInterface
     {
         if (is_string($uri)) {

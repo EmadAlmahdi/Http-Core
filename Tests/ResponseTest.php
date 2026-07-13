@@ -35,7 +35,7 @@ final class ResponseTest extends TestCase
         $this->assertSame(201, $response->getStatusCode());
         $this->assertSame('Created!', $response->getReasonPhrase());
         $this->assertSame($body, $response->getBody());
-        $this->assertSame(['content-type' => ['text/plain']], $response->getHeaders());
+        $this->assertSame(['Content-Type' => ['text/plain']], $response->getHeaders());
         $this->assertSame('2.0', $response->getProtocolVersion());
     }
 
