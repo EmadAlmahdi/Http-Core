@@ -1,10 +1,13 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Temant\HttpCore\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Temant\HttpCore\ServerRequest;
 use Temant\HttpCore\Stream;
+use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriInterface;
 use InvalidArgumentException;
 
@@ -47,7 +50,8 @@ final class ServerRequestTest extends TestCase
         $newRequest = $request->withMethod('post');
 
         $this->assertNotSame($request, $newRequest);
-        $this->assertSame('POST', $newRequest->getMethod());
+        // Per PSR-7, method case is preserved exactly as given, not normalized.
+        $this->assertSame('post', $newRequest->getMethod());
     }
 
     public function testWithRequestTargetAndInvalid(): void
@@ -164,11 +168,33 @@ final class ServerRequestTest extends TestCase
         $uri = $this->createUriMock();
         $request = new ServerRequest('GET', $uri);
 
-        $files = ['file1' => ['name' => 'test.txt']];
-        $newRequest = $request->withUploadedFiles($files); // @phpstan-ignore argument.type
+        // A nested tree, mirroring how a multi-file <input name="photos[]">
+        // shows up: some leaves at the top level, some one level deeper.
+        $files = [
+            'file1' => $this->createMock(UploadedFileInterface::class),
+            'photos' => [$this->createMock(UploadedFileInterface::class)],
+        ];
+        $newRequest = $request->withUploadedFiles($files);
 
         $this->assertNotSame($request, $newRequest);
         $this->assertSame($files, $newRequest->getUploadedFiles());
+    }
+
+    public function testWithUploadedFilesRejectsNonUploadedFileLeaves(): void
+    {
+        $uri = $this->createUriMock();
+        $request = new ServerRequest('GET', $uri);
+
+        $this->expectException(InvalidArgumentException::class);
+        $request->withUploadedFiles(['file1' => ['name' => 'test.txt']]);
+    }
+
+    public function testConstructorRejectsInvalidUploadedFilesTree(): void
+    {
+        $uri = $this->createUriMock();
+
+        $this->expectException(InvalidArgumentException::class);
+        new ServerRequest('GET', $uri, uploadedFiles: ['file1' => 'not-an-uploaded-file']); // @phpstan-ignore argument.type
     }
 
     public function testParsedBody(): void

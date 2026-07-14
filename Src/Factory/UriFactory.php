@@ -23,10 +23,14 @@ class UriFactory implements UriFactoryInterface
     }
 
     /**
-     * Create a URI from the global server variables.
+     * Reconstructs the URI the client actually requested, from `$_SERVER`.
      *
-     * This method constructs a URI string based on the $_SERVER superglobal array,
-     * following the same logic as most PHP frameworks and PSR-7 implementations.
+     * There's no single `$_SERVER` key with "the URL" in it - it has to be
+     * assembled from scheme (`HTTPS`, falling back to the `X-Forwarded-Proto`
+     * header for anything behind a reverse proxy), host (`HTTP_HOST`,
+     * falling back to `SERVER_NAME`), port, and path+query
+     * (`REQUEST_URI`). This does that assembly once so the rest of the
+     * library never has to think about `$_SERVER`'s quirks directly.
      *
      * @param mixed[] $server The server array (typically $_SERVER)
      * @return UriInterface

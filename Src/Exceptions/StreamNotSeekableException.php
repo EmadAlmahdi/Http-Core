@@ -1,13 +1,18 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Temant\HttpCore\Exceptions;
  
 use Throwable;
 
 /**
- * Exception thrown when a seek operation is attempted on a non-seekable stream.
- * This exception is thrown to indicate that the stream is not in a state
- * that allows seeking operations to be performed.
+ * Thrown by {@see \Temant\HttpCore\Stream::seek()} (and therefore {@see
+ * \Temant\HttpCore\Stream::rewind()}, which just calls `seek(0)`) when the
+ * underlying resource reports itself as non-seekable via PHP's own
+ * `stream_get_meta_data()` - true for things like a pipe or a
+ * `php://output` stream, where "go back to a byte you already passed"
+ * isn't a meaningful operation.
  */
 class StreamNotSeekableException extends StreamException
 {

@@ -1,12 +1,18 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Temant\HttpCore\Exceptions;
 
 use Throwable;
 
 /**
- * Exception thrown when a stream operation is attempted on a detached stream.
- * This indicates that the stream is no longer available for operations.
+ * Thrown when a {@see \Temant\HttpCore\Stream} is used after {@see
+ * \Temant\HttpCore\Stream::detach()} has already handed its resource off
+ * to someone else. Once detached, the wrapper has nothing left to operate
+ * on - there's no resource to read from, write to, or seek in, so every
+ * operation that needs one throws this instead of segfaulting on a null
+ * resource or silently doing nothing.
  */
 class StreamDetachedException extends StreamException
 {

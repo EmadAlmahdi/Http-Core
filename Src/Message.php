@@ -256,13 +256,15 @@ abstract class Message implements MessageInterface
      */
     protected function filterProtocolVersion(string $version): string
     {
-        if (!preg_match(self::PROTOCOL_PATTERN, $version)) {
-            throw new InvalidArgumentException(
-                'Unsupported HTTP protocol version. Must be one of: 1.0, 1.1, 2, 2.0'
-            );
+        // '1.1' is the default and overwhelmingly common case - skip the
+        // regex entirely for it instead of matching on every construction.
+        if ($version === '1.1' || preg_match(self::PROTOCOL_PATTERN, $version)) {
+            return $version;
         }
 
-        return $version;
+        throw new InvalidArgumentException(
+            'Unsupported HTTP protocol version. Must be one of: 1.0, 1.1, 2, 2.0'
+        );
     }
 
     /**

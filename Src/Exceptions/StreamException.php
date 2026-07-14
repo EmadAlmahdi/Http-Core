@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Temant\HttpCore\Exceptions;
 
@@ -6,9 +8,12 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Base exception class for stream-related errors.
- * This exception serves as a general base class for all exceptions
- * related to stream operations within the Temant\HttpCore library.
+ * Something went wrong operating on a {@see \Temant\HttpCore\Stream}.
+ *
+ * Catch this (rather than the more specific subclasses below) if you just
+ * want "did something break while I was reading/writing this stream?"
+ * without caring exactly which precondition failed - it's the parent of
+ * every stream-related exception this library throws.
  */
 class StreamException extends RuntimeException
 {

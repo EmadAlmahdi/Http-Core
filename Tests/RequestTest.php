@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Temant\HttpCore\Tests;
 
@@ -103,7 +105,10 @@ final class RequestTest extends TestCase
         $newRequest = $request->withMethod('post');
 
         $this->assertNotSame($request, $newRequest);
-        $this->assertSame('POST', $newRequest->getMethod());
+        // PSR-7's RequestInterface::withMethod() docblock: "HTTP method
+        // names are case-sensitive and thus implementations SHOULD NOT
+        // modify the given string" - case is preserved exactly as given.
+        $this->assertSame('post', $newRequest->getMethod());
     }
 
     public function testWithMethodReturnsSameForSameMethod(): void

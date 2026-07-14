@@ -42,8 +42,15 @@ use Stringable;
  *   both of which PSR-7's `UriInterface` explicitly requires this class to
  *   support unchanged.
  *
- * So component encoding is hand-rolled (`filterPath()`, userinfo encoding,
- * the scheme regex) - plain string operations on an already-parsed value.
+ * So component encoding is hand-rolled here instead: a fast path for the
+ * common case where a component is already made up entirely of allowed
+ * characters, and a `preg_replace_callback()` fallback for everything else
+ * that encodes only what actually needs it - critically, one that leaves
+ * an already-valid `%XX` triplet alone rather than re-encoding its `%`,
+ * which is what PSR-7 means by "MUST NOT double-encode any characters."
+ * (An earlier version of this code got that wrong via a plain
+ * `rawurlencode()` call, which happily turned a caller-supplied `%20`
+ * into `%2520`.)
  */
 final class Uri implements UriInterface, Stringable
 {
@@ -68,6 +75,32 @@ final class Uri implements UriInterface, Stringable
      * (e.g. `/api/v1/users/123`).
      */
     private const string PATH_SAFE_PATTERN = '/^[A-Za-z0-9\-._~\/]*$/';
+
+    /**
+     * Fast-path check for the query/fragment case: every character RFC 3986
+     * allows unescaped there (the unreserved set, sub-delims, `:`/`@`/`/`,
+     * plus a bare `?`). If the whole string already matches, there's
+     * nothing to encode.
+     */
+    private const string QUERY_FRAGMENT_SAFE_PATTERN = "/^[A-Za-z0-9\\-._~!$&'()*+,;=:@\\/?]*$/";
+
+    /**
+     * Matches a run of characters that need percent-encoding in a path: a
+     * bare `%` not already part of a valid `%XX` triplet, or anything
+     * outside the allowed path character set. `%` is excluded from the
+     * first alternative's negated class deliberately - otherwise every
+     * `%` would greedily match there instead of ever reaching the second
+     * alternative's "is this actually a valid triplet?" lookahead, which
+     * is what keeps this from double-encoding input the caller already
+     * encoded themselves.
+     */
+    private const string PATH_ENCODE_PATTERN = "/(?:[^A-Za-z0-9\\-._~!$&'()*+,;=:@\\/%]++|%(?![A-Fa-f0-9]{2}))/";
+
+    /** As {@see PATH_ENCODE_PATTERN}, but a bare `?` is also left alone. */
+    private const string QUERY_FRAGMENT_ENCODE_PATTERN = "/(?:[^A-Za-z0-9\\-._~!$&'()*+,;=:@\\/?%]++|%(?![A-Fa-f0-9]{2}))/";
+
+    /** As {@see PATH_ENCODE_PATTERN}, restricted to what's valid in a userinfo sub-component (no `/`, `?`, `@`, `:` is the user/pass separator so it's excluded too). */
+    private const string USERINFO_ENCODE_PATTERN = "/(?:[^A-Za-z0-9\\-._~!$&'()*+,;=%]++|%(?![A-Fa-f0-9]{2}))/";
 
     private readonly string $scheme;
     private readonly string $userInfo;
@@ -103,8 +136,8 @@ final class Uri implements UriInterface, Stringable
         $this->host = isset($parts['host']) ? strtolower($parts['host']) : '';
         $this->port = $port;
         $this->path = isset($parts['path']) ? $this->filterPath($parts['path']) : '';
-        $this->query = $parts['query'] ?? '';
-        $this->fragment = $parts['fragment'] ?? '';
+        $this->query = isset($parts['query']) ? $this->filterQueryOrFragment($parts['query']) : '';
+        $this->fragment = isset($parts['fragment']) ? $this->filterQueryOrFragment($parts['fragment']) : '';
     }
 
     /**
@@ -123,11 +156,15 @@ final class Uri implements UriInterface, Stringable
 
     /**
      * Percent-encodes a single userinfo sub-component (username or password),
-     * skipping `rawurlencode()` when the value is already unreserved-only.
+     * skipping the regex entirely when the value is already unreserved-only.
      */
     private function encodeUserComponent(string $value): string
     {
-        return preg_match(self::UNRESERVED_PATTERN, $value) === 1 ? $value : rawurlencode($value);
+        if ($value === '' || preg_match(self::UNRESERVED_PATTERN, $value) === 1) {
+            return $value;
+        }
+
+        return self::encodeExcept(self::USERINFO_ENCODE_PATTERN, $value);
     }
 
     /**
@@ -272,23 +309,23 @@ final class Uri implements UriInterface, Stringable
     #[\Override]
     public function withQuery(string $query): static
     {
-        $trimmed = ltrim($query, '?');
-        if ($trimmed === $this->query) {
+        $filtered = $this->filterQueryOrFragment(ltrim($query, '?'));
+        if ($filtered === $this->query) {
             return $this;
         }
 
-        return clone($this, ['query' => $trimmed]);
+        return clone($this, ['query' => $filtered]);
     }
 
     #[\Override]
     public function withFragment(string $fragment): static
     {
-        $trimmed = ltrim($fragment, '#');
-        if ($trimmed === $this->fragment) {
+        $filtered = $this->filterQueryOrFragment(ltrim($fragment, '#'));
+        if ($filtered === $this->fragment) {
             return $this;
         }
 
-        return clone($this, ['fragment' => $trimmed]);
+        return clone($this, ['fragment' => $filtered]);
     }
 
     #[\Override]
@@ -315,11 +352,13 @@ final class Uri implements UriInterface, Stringable
     }
 
     /**
-     * Percent-encodes a raw path, leaving "/" separators intact.
+     * Percent-encodes a raw path, leaving "/" and everything else RFC 3986
+     * allows unescaped (sub-delims, ":", "@", and any `%XX` triplet the
+     * caller already encoded themselves) intact.
      *
      * Most real-world paths (`/api/v1/users/123`) are already made up
      * entirely of unreserved characters, so the common case bails out
-     * before ever calling `rawurlencode()`.
+     * before ever touching a regex.
      */
     private function filterPath(string $path): string
     {
@@ -327,6 +366,50 @@ final class Uri implements UriInterface, Stringable
             return $path;
         }
 
-        return str_replace('%2F', '/', rawurlencode($path));
+        return self::encodeExcept(self::PATH_ENCODE_PATTERN, $path);
+    }
+
+    /**
+     * Percent-encodes a raw query string or fragment (the two components
+     * share the same allowed character set, differing only in leading
+     * delimiter, which callers strip before calling this).
+     */
+    private function filterQueryOrFragment(string $value): string
+    {
+        if ($value === '' || preg_match(self::QUERY_FRAGMENT_SAFE_PATTERN, $value) === 1) {
+            return $value;
+        }
+
+        return self::encodeExcept(self::QUERY_FRAGMENT_ENCODE_PATTERN, $value);
+    }
+
+    /**
+     * Runs `preg_replace_callback()` with the given "what needs escaping"
+     * pattern, rawurlencode-ing each match. `preg_replace_callback()` is
+     * typed to return `string|null`, with `null` reserved for a PCRE engine
+     * failure (a backtrack/recursion limit, or invalid UTF-8 under the `/u`
+     * modifier) - neither of which applies to the plain byte-oriented
+     * patterns used here, so a `null` here would mean something is
+     * seriously wrong rather than a normal failure to handle gracefully.
+     */
+    private static function encodeExcept(string $pattern, string $value): string
+    {
+        return preg_replace_callback($pattern, self::rawurlencodeMatch(...), $value)
+            ?? throw new \RuntimeException('Unexpected failure while percent-encoding a URI component');
+    }
+
+    /**
+     * `preg_replace_callback()` callback shared by every encode path here:
+     * each match is either a run of characters that need escaping, or a
+     * lone "%" that isn't part of a valid `%XX` triplet - either way,
+     * `rawurlencode()` is the right thing to do to it. Never applied to an
+     * already-valid `%XX` triplet, which is what keeps these methods from
+     * double-encoding input that arrives pre-encoded.
+     *
+     * @param string[] $match
+     */
+    private static function rawurlencodeMatch(array $match): string
+    {
+        return rawurlencode($match[0]);
     }
 }

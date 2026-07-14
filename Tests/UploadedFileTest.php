@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Temant\HttpCore\Tests;
 
@@ -86,6 +88,26 @@ final class UploadedFileTest extends TestCase
         $file->moveTo($tmpTarget);
 
         $this->assertSame('Hello world', file_get_contents($tmpTarget));
+    }
+
+    public function testMoveToRemovesOriginalFileWhenBackedByRealPath(): void
+    {
+        // PSR-7's UploadedFileInterface::moveTo() docblock: "The original
+        // file or stream MUST be removed on completion." When the upload
+        // is backed by a real file (as it always is for a genuine $_FILES
+        // entry), moving it must not leave the source temp file behind.
+        $tempFile = tempnam(sys_get_temp_dir(), 'upl');
+        file_put_contents($tempFile, 'Hello world');
+
+        $file = new UploadedFile($tempFile, 'hello.txt', 'text/plain', 11, UPLOAD_ERR_OK);
+
+        $target = tempnam(sys_get_temp_dir(), 'upload_');
+        $file->moveTo($target);
+
+        $this->assertSame('Hello world', file_get_contents($target));
+        $this->assertFileDoesNotExist($tempFile);
+
+        unlink($target);
     }
 
     public function testMoveToTwiceThrows(): void

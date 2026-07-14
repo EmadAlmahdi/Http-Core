@@ -19,6 +19,8 @@ use Psr\Http\Message\UriInterface;
  * an arbitrary attribute bag middleware can use to pass data down the
  * pipeline (routing results, an authenticated user, and so on). Build one
  * from PHP's superglobals with {@see \Temant\HttpCore\Factory\ServerRequestFactory::fromGlobals()}.
+ *
+ * @phpstan-type UploadedFilesTree array<string|int, UploadedFileInterface|array<string|int, UploadedFileInterface|mixed>>
  */
 final class ServerRequest extends Request implements ServerRequestInterface
 {
@@ -30,7 +32,7 @@ final class ServerRequest extends Request implements ServerRequestInterface
      * @param array<mixed> $serverParams
      * @param array<mixed> $cookieParams
      * @param array<mixed> $queryParams
-     * @param array<UploadedFileInterface> $uploadedFiles
+     * @param UploadedFilesTree $uploadedFiles
      * @param array<mixed>|object|null $parsedBody
      */
     public function __construct(
@@ -45,6 +47,8 @@ final class ServerRequest extends Request implements ServerRequestInterface
         private readonly array $uploadedFiles = [],
         private readonly array|object|null $parsedBody = null
     ) {
+        self::assertValidUploadedFilesTree($uploadedFiles);
+
         parent::__construct($method, $uri, $headers, $body, $protocolVersion);
         $this->attributes = [];
     }
@@ -107,7 +111,7 @@ final class ServerRequest extends Request implements ServerRequestInterface
     /**
      * @inheritDoc
      *
-     * @return array<UploadedFileInterface>
+     * @return UploadedFilesTree
      */
     #[\Override]
     public function getUploadedFiles(): array
@@ -118,12 +122,43 @@ final class ServerRequest extends Request implements ServerRequestInterface
     /**
      * @inheritDoc
      *
-     * @param array<UploadedFileInterface> $uploadedFiles
+     * @param UploadedFilesTree $uploadedFiles
+     * @throws InvalidArgumentException if any leaf of $uploadedFiles isn't an {@see UploadedFileInterface}
      */
     #[\Override]
     public function withUploadedFiles(array $uploadedFiles): static
     {
+        self::assertValidUploadedFilesTree($uploadedFiles);
+
         return clone($this, ['uploadedFiles' => $uploadedFiles]);
+    }
+
+    /**
+     * PSR-7 describes {@see getUploadedFiles()} as returning "an array
+     * tree" whose leaves are {@see UploadedFileInterface} instances -
+     * nested arrays are allowed (mirroring how a multi-file `<input
+     * name="photos[]">` shows up in `$_FILES`), so this walks the whole
+     * tree rather than just checking the top level.
+     *
+     * @param array<mixed> $tree
+     * @throws InvalidArgumentException if any leaf isn't an {@see UploadedFileInterface}
+     */
+    private static function assertValidUploadedFilesTree(array $tree): void
+    {
+        foreach ($tree as $leaf) {
+            if ($leaf instanceof UploadedFileInterface) {
+                continue;
+            }
+
+            if (\is_array($leaf)) {
+                self::assertValidUploadedFilesTree($leaf);
+                continue;
+            }
+
+            throw new InvalidArgumentException(
+                'Invalid uploaded files structure: every leaf must be an UploadedFileInterface instance'
+            );
+        }
     }
 
     /**
@@ -152,7 +187,7 @@ final class ServerRequest extends Request implements ServerRequestInterface
         }
 
         /** @phpstan-ignore function.alreadyNarrowedType, booleanAnd.alwaysFalse */
-        if (!is_array($data) && !is_object($data)) {
+        if (!\is_array($data) && !\is_object($data)) {
             throw new InvalidArgumentException('Parsed body must be array, object, or null');
         }
 
@@ -186,7 +221,7 @@ final class ServerRequest extends Request implements ServerRequestInterface
     #[\Override]
     public function withoutAttribute(string $name): static
     {
-        if (!array_key_exists($name, $this->attributes)) {
+        if (!\array_key_exists($name, $this->attributes)) {
             return $this;
         }
 

@@ -18,11 +18,31 @@ use InvalidArgumentException;
  * added automatically - both here and whenever {@see withUri()} swaps in a
  * new URI - matching what a real HTTP client does when it puts a request
  * on the wire.
+ *
+ * The method string is validated against RFC 7230's token grammar (and
+ * {@see withMethod()}/the constructor throw `InvalidArgumentException` for
+ * anything that doesn't match, per PSR-7's contract) but is otherwise
+ * stored exactly as given - PSR-7's `RequestInterface::withMethod()` is
+ * explicit that "HTTP method names are case-sensitive and thus
+ * implementations SHOULD NOT modify the given string", so `new
+ * Request('get', $uri)` keeps `getMethod() === 'get'` rather than
+ * silently uppercasing it.
  */
 class Request extends Message implements RequestInterface
 {
     private const string METHOD_PATTERN = '/^[!#$%&\'*+.^_`|~0-9a-z-]+$/i';
     private const string REQUEST_TARGET_PATTERN = '/\s/';
+
+    /**
+     * Fast-path lookup for the standard verbs, checked before falling back
+     * to {@see METHOD_PATTERN} - avoids a regex match on every request for
+     * the overwhelming common case of an already-uppercase standard method.
+     */
+    private const array STANDARD_METHODS = [
+        'GET' => true, 'POST' => true, 'PUT' => true, 'PATCH' => true,
+        'DELETE' => true, 'HEAD' => true, 'OPTIONS' => true, 'TRACE' => true,
+        'CONNECT' => true,
+    ];
 
     private readonly string $method;
     private readonly UriInterface $uri;
@@ -45,16 +65,33 @@ class Request extends Message implements RequestInterface
         string $protocolVersion = '1.1'
     ) {
         $method = $method instanceof HttpMethod ? $method->value : $method;
-        $this->validateMethod($method);
+
+        // Inlined fast path for the constructor specifically, since it's
+        // this library's hottest call site: skips the validateMethod()
+        // call and the Host-header lookup's function-call overhead for
+        // the common case (a standard verb, no caller-supplied Host header).
+        if (!isset(self::STANDARD_METHODS[$method])) {
+            $this->validateMethod($method);
+        }
 
         $host = $uri->getHost();
-        if ($host !== '' && !self::hasHeaderNamed($headers, 'host')) {
-            $headers['Host'] = $this->hostHeaderValue($uri);
+        if ($host !== '') {
+            $hasHost = false;
+            foreach ($headers as $key => $ignored) {
+                if (strtolower((string) $key) === 'host') {
+                    $hasHost = true;
+                    break;
+                }
+            }
+            if (!$hasHost) {
+                $port = $uri->getPort();
+                $headers['Host'] = [$port !== null ? "{$host}:{$port}" : $host];
+            }
         }
 
         parent::__construct($headers, $body, $protocolVersion);
 
-        $this->method = strtoupper($method);
+        $this->method = $method;
         $this->uri = $uri;
         $this->requestTarget = '';
     }
@@ -99,12 +136,11 @@ class Request extends Message implements RequestInterface
     #[\Override]
     public function withMethod(string $method): static
     {
-        $this->validateMethod($method);
-        $method = strtoupper($method);
-
         if ($this->method === $method) {
             return $this;
         }
+
+        $this->validateMethod($method);
 
         return clone($this, ['method' => $method]);
     }
@@ -129,34 +165,15 @@ class Request extends Message implements RequestInterface
         }
 
         $host = $uri->getHost();
-        return $host !== '' ? $new->withHeader('Host', $this->hostHeaderValue($uri)) : $new;
+        return $host !== '' ? $new->withHeader('Host', self::hostHeaderValue($host, $uri->getPort())) : $new;
     }
 
     /**
      * @return string[]
      */
-    private function hostHeaderValue(UriInterface $uri): array
+    private static function hostHeaderValue(string $host, ?int $port): array
     {
-        $host = $uri->getHost();
-        $port = $uri->getPort();
         return [$port !== null ? "{$host}:{$port}" : $host];
-    }
-
-    /**
-     * Case-insensitive check for whether a raw (not yet normalized) headers
-     * array already has an entry for the given name.
-     *
-     * @param array<array-key, mixed> $headers
-     */
-    private static function hasHeaderNamed(array $headers, string $name): bool
-    {
-        foreach (array_keys($headers) as $key) {
-            if (strtolower((string) $key) === $name) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -166,6 +183,10 @@ class Request extends Message implements RequestInterface
      */
     private function validateMethod(string $method): void
     {
+        if (isset(self::STANDARD_METHODS[$method])) {
+            return;
+        }
+
         if ($method === '') {
             throw new InvalidArgumentException('HTTP method cannot be empty');
         }

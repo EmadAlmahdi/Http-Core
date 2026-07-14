@@ -140,6 +140,18 @@ examples - each one is here because it was measured, not assumed:
   has none), so paying for an `fopen('php://temp', ...)` call up front on
   every single object is wasted work - it's created lazily, once, on
   first access.
+- `Request`'s constructor - this library's single hottest call site -
+  checks the method against a small lookup table of the nine standard
+  verbs before ever reaching a regex, and inlines the "does this Host
+  header already exist" scan instead of going through extra function
+  calls. Neither `preg_match()` nor a helper-method call happens at all
+  for the overwhelmingly common case of `new Request('GET', $uri)`.
+- The method is validated (PSR-7 requires throwing on an invalid one) but
+  never case-normalized. `psr/http-message`'s own docblock for
+  `withMethod()` says implementations "SHOULD NOT modify the given
+  string" since method names are case-sensitive - so the `strtoupper()`
+  call this used to have wasn't just extra work, it was a spec deviation.
+  Removing it fixed correctness and performance at the same time.
 
 ### Running the benchmark
 
@@ -161,28 +173,36 @@ sorted fastest-first):
 
 ```
 === Temant HttpCore: internal hot paths ===
-  Request: withHeader()           100,000 ops      361.5 ns/op     2,765,961 ops/sec   1.00x
-  Response: construct + getReasonPhrase()    100,000 ops      414.6 ns/op     2,411,840 ops/sec   1.15x
-  Request: construct              100,000 ops      521.6 ns/op     1,917,321 ops/sec   1.44x
+  Request: withHeader()           100,000 ops      330.7 ns/op     3,023,827 ops/sec   1.00x
+  Response: construct + getReasonPhrase()    100,000 ops      400.9 ns/op     2,494,419 ops/sec   1.21x
+  Request: construct              100,000 ops      426.1 ns/op     2,346,835 ops/sec   1.29x
   ...
 
 === Comparison: Temant HttpCore (this library), Guzzle PSR-7, Nyholm PSR-7, Laminas Diactoros, Slim PSR-7 ===
 
 createUri()
 -----------
-  Temant HttpCore (this library)    100,000 ops      457.0 ns/op     2,188,344 ops/sec   1.00x
-  Nyholm PSR-7                    100,000 ops      667.7 ns/op     1,497,660 ops/sec   1.46x
-  Slim PSR-7                      100,000 ops     1058.0 ns/op       945,212 ops/sec   2.32x
-  Laminas Diactoros               100,000 ops     1768.0 ns/op       565,623 ops/sec   3.87x
-  Guzzle PSR-7                    100,000 ops     2776.5 ns/op       360,168 ops/sec   6.08x
+  Temant HttpCore (this library)    100,000 ops      474.4 ns/op     2,108,113 ops/sec   1.00x
+  Nyholm PSR-7                    100,000 ops      675.5 ns/op     1,480,376 ops/sec   1.42x
+  Slim PSR-7                      100,000 ops     1034.9 ns/op       966,289 ops/sec   2.18x
+  Laminas Diactoros               100,000 ops     1970.4 ns/op       507,503 ops/sec   4.15x
+  Guzzle PSR-7                    100,000 ops     2794.3 ns/op       357,866 ops/sec   5.89x
 
 createRequest()
 ---------------
-  Nyholm PSR-7                    100,000 ops      301.1 ns/op     3,321,318 ops/sec   1.00x
-  Temant HttpCore (this library)    100,000 ops      523.8 ns/op     1,909,011 ops/sec   1.74x
-  Guzzle PSR-7                    100,000 ops      569.2 ns/op     1,756,803 ops/sec   1.89x
-  Laminas Diactoros               100,000 ops      753.2 ns/op     1,327,735 ops/sec   2.50x
-  Slim PSR-7                      100,000 ops     1444.0 ns/op       692,506 ops/sec   4.80x
+  Nyholm PSR-7                    100,000 ops      301.6 ns/op     3,315,207 ops/sec   1.00x
+  Temant HttpCore (this library)    100,000 ops      369.7 ns/op     2,704,784 ops/sec   1.23x
+  Guzzle PSR-7                    100,000 ops      548.9 ns/op     1,821,946 ops/sec   1.82x
+  Laminas Diactoros               100,000 ops      755.0 ns/op     1,324,507 ops/sec   2.50x
+  Slim PSR-7                      100,000 ops     1397.7 ns/op       715,439 ops/sec   4.63x
+
+withHeader() on the resulting request
+-------------------------------------
+  Nyholm PSR-7                    100,000 ops      319.5 ns/op     3,129,615 ops/sec   1.00x
+  Temant HttpCore (this library)    100,000 ops      334.7 ns/op     2,987,644 ops/sec   1.05x
+  Guzzle PSR-7                    100,000 ops      502.1 ns/op     1,991,791 ops/sec   1.57x
+  Laminas Diactoros               100,000 ops      538.8 ns/op     1,855,887 ops/sec   1.69x
+  Slim PSR-7                      100,000 ops      786.5 ns/op     1,271,375 ops/sec   2.46x
 ```
 
 The benchmark runner (`Temant\HttpCore\Benchmarks\Benchmark`) is a small,
@@ -197,13 +217,22 @@ forget and it silently invalidates any comparison:
    are not representative. Re-run with XDEBUG_MODE=off for real numbers.
 ```
 
-We're fastest on URI construction and competitive (2nd, close behind
-Nyholm) on request construction and header manipulation - we haven't
-pinned down exactly where that remaining gap comes from yet, so we're not
-going to guess at a reason here. We don't claim blanket "fastest on the
-market" either - that's a moving target and depends on your workload - but
-every number above came from the benchmark in this repo, which you can run
-yourself and check against whatever else you're evaluating.
+We're fastest on URI construction, essentially tied with Nyholm on header
+manipulation, and close 2nd on request construction. That remaining
+`createRequest()` gap is a known, deliberate trade rather than an
+unexplained one: Nyholm's `Request` constructor does not validate the
+HTTP method at all - any string, including a genuinely invalid one, is
+accepted as-is. This library validates the method against RFC 7230's
+token grammar and throws `InvalidArgumentException` for anything else,
+per PSR-7's `@throws` contract on `withMethod()`. That validation is
+real work Nyholm simply skips, and we'd rather keep it than shave off
+the last fraction of a microsecond. (We used to also normalize the
+method's case, which cost even more - but that turned out to be a PSR-7
+deviation, not a feature, so it's gone; see above.) We don't claim
+blanket "fastest on the market" either - that's a moving target and
+depends on your workload - but every number above came from the
+benchmark in this repo, which you can run yourself
+and check against whatever else you're evaluating.
 
 ---
 

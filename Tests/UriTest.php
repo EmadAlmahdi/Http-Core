@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Temant\HttpCore\Tests;
 
@@ -44,7 +46,7 @@ final class UriTest extends TestCase
 
     public function testToStringProducesCompleteUri(): void
     {
-        $uri = (new Uri())
+        $uri = new Uri()
             ->withScheme('https')
             ->withUserInfo('john', 'doe')
             ->withHost('example.com')
@@ -78,7 +80,7 @@ final class UriTest extends TestCase
 
     public function testQueryAndFragmentTrimLeadingChars(): void
     {
-        $uri = (new Uri())->withQuery('?a=b')->withFragment('#frag');
+        $uri = new Uri()->withQuery('?a=b')->withFragment('#frag');
         $this->assertSame('a=b', $uri->getQuery());
         $this->assertSame('frag', $uri->getFragment());
     }
@@ -139,7 +141,7 @@ final class UriTest extends TestCase
         $user = 'user@name';
         $pass = 'p@ss:word';
 
-        $uri = (new Uri())
+        $uri = new Uri()
             ->withUserInfo($user, $pass);
 
         $this->assertSame(rawurlencode($user) . ':' . rawurlencode($pass), $uri->getUserInfo());
@@ -149,7 +151,9 @@ final class UriTest extends TestCase
         $uri = new Uri('mailto:user@example.com');
         $this->assertSame('mailto', $uri->getScheme());
         $this->assertSame('', $uri->getAuthority());
-        $this->assertSame(rawurlencode('user@example.com'), $uri->getPath());
+        // "@" is a valid pchar per RFC 3986 (unlike in userinfo, where it's
+        // the delimiter) - a path may contain it unescaped.
+        $this->assertSame('user@example.com', $uri->getPath());
     }
 
     public function testFileUri(): void
@@ -179,12 +183,12 @@ final class UriTest extends TestCase
 
     public function testWithUserInfoReturnsSameInstanceIfUnchanged(): void
     {
-        $uri = (new Uri())->withUserInfo('user', 'pass');
+        $uri = new Uri()->withUserInfo('user', 'pass');
         $this->assertSame($uri, $uri->withUserInfo('user', 'pass'));
     }
     public function testPathWithDotSegments(): void
     {
-        $uri = (new Uri())->withPath('/a/./b/../c');
+        $uri = new Uri()->withPath('/a/./b/../c');
         // path segments ska url-enkodas, men dots sparas oförändrade
         $this->assertSame('/a/./b/../c', rawurldecode($uri->getPath()));
     }
@@ -209,19 +213,19 @@ final class UriTest extends TestCase
 
     public function testWithPathReturnsSameInstanceIfUnchanged(): void
     {
-        $uri = (new Uri())->withPath('/same/path');
+        $uri = new Uri()->withPath('/same/path');
         $this->assertSame($uri, $uri->withPath('/same/path'));
     }
 
     public function testWithQueryReturnsSameInstanceIfUnchanged(): void
     {
-        $uri = (new Uri())->withQuery('a=1');
+        $uri = new Uri()->withQuery('a=1');
         $this->assertSame($uri, $uri->withQuery('a=1'));
     }
 
     public function testWithFragmentReturnsSameInstanceIfUnchanged(): void
     {
-        $uri = (new Uri())->withFragment('frag');
+        $uri = new Uri()->withFragment('frag');
         $this->assertSame($uri, $uri->withFragment('frag'));
     }
 

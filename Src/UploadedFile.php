@@ -19,6 +19,17 @@ use InvalidArgumentException;
  * {@see getStream()} refuse to run again afterward, mirroring how PHP's
  * own `move_uploaded_file()` behaves for a real upload.
  *
+ * When the wrapped stream is backed by a real file on disk, {@see moveTo()}
+ * moves it with `move_uploaded_file()` (or `rename()` under a CLI SAPI,
+ * where `move_uploaded_file()` always fails since there's no upload to
+ * verify). This isn't just an optimization over copying bytes by hand:
+ * PSR-7 calls out that `is_uploaded_file()`/`move_uploaded_file()` SHOULD
+ * be used specifically because they verify the file genuinely arrived via
+ * an HTTP upload - without that check, a request that lied about
+ * `tmp_name` could trick an application into moving (and thereby
+ * exposing, via whatever the destination is served as) an arbitrary file
+ * it otherwise has no business touching.
+ *
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 final class UploadedFile implements UploadedFileInterface
@@ -85,7 +96,49 @@ final class UploadedFile implements UploadedFileInterface
         }
 
         $stream = $this->getStream();
-        $stream->rewind();
+        $sourcePath = $stream->getMetadata('uri');
+
+        if (\is_string($sourcePath) && $sourcePath !== '' && \is_file($sourcePath)) {
+            $this->moveRealFile($sourcePath, $targetPath);
+        } else {
+            $this->copyStreamTo($stream, $targetPath);
+        }
+
+        $this->moved = true;
+    }
+
+    /**
+     * Moves a stream that's backed by a real file on disk, using the
+     * SAPI-appropriate native function so the original is both verified
+     * (in a real request) and removed as part of the same call - see the
+     * class docblock for why that verification matters.
+     *
+     * @throws RuntimeException if the move fails
+     */
+    private function moveRealFile(string $sourcePath, string $targetPath): void
+    {
+        $moved = \PHP_SAPI === 'cli'
+            ? @\rename($sourcePath, $targetPath)
+            : @\move_uploaded_file($sourcePath, $targetPath);
+
+        if ($moved === false) {
+            throw new RuntimeException("Unable to move uploaded file to: {$targetPath}");
+        }
+    }
+
+    /**
+     * Falls back to a plain byte-for-byte copy for a stream that isn't
+     * backed by a real file (e.g. one built directly on `php://memory` for
+     * testing) - there's no filesystem move available for that, and
+     * nothing else to remove afterward besides the stream itself.
+     *
+     * @throws RuntimeException if the destination can't be opened
+     */
+    private function copyStreamTo(StreamInterface $stream, string $targetPath): void
+    {
+        if ($stream->isSeekable()) {
+            $stream->rewind();
+        }
 
         $dest = @\fopen($targetPath, 'wb');
         if ($dest === false) {
@@ -96,8 +149,6 @@ final class UploadedFile implements UploadedFileInterface
             \fwrite($dest, $stream->read(8192));
         }
         \fclose($dest);
-
-        $this->moved = true;
     }
 
     #[\Override]
