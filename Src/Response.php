@@ -6,7 +6,6 @@ namespace Temant\HttpCore;
 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
-use RuntimeException;
 use InvalidArgumentException;
 
 /**
@@ -36,7 +35,6 @@ final class Response extends Message implements ResponseInterface
      * @param string $reasonPhrase Reason phrase (if empty, will use standard phrase)
      *
      * @throws InvalidArgumentException For invalid status code or protocol version
-     * @throws RuntimeException When body stream cannot be created
      */
     public function __construct(
         int|HttpStatus $statusCode = 200,

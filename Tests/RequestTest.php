@@ -39,7 +39,7 @@ final class RequestTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         $uri = $this->createUriMock();
-        $request = new Request('GET', $uri, [], null, '3.0');
+        new Request('GET', $uri, [], null, '3.0');
     }
 
     public function testConstructorThrowsOnEmptyMethod(): void

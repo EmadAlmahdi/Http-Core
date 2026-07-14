@@ -23,6 +23,13 @@ use InvalidArgumentException;
  * Everything here is `readonly`; every `with*()` method returns a fresh
  * instance rather than mutating the one it was called on.
  *
+ * The body stream is the one exception to "everything is set up in the
+ * constructor": if you don't supply one, no stream resource is opened
+ * until something actually calls {@see getBody()}. Constructing a request
+ * or response is one of the hottest paths in this library, and most of
+ * the time nobody ever reads the (empty) body of a `GET` request - paying
+ * for an `fopen()` call that's thrown away unread is pure waste.
+ *
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 abstract class Message implements MessageInterface
@@ -46,6 +53,12 @@ abstract class Message implements MessageInterface
      */
     protected readonly array $headerNames;
 
+    /**
+     * Left uninitialized until {@see getBody()} is first called, unless an
+     * explicit body was given to the constructor or {@see withBody()}.
+     *
+     * @phpstan-ignore property.uninitializedReadonly (intentionally lazy - see getBody())
+     */
     protected readonly StreamInterface $body;
 
     /**
@@ -56,7 +69,6 @@ abstract class Message implements MessageInterface
     /**
      * @param array<string, string[]> $headers
      * @throws InvalidArgumentException For invalid protocol versions
-     * @throws RuntimeException When no body is given and a default stream cannot be created
      */
     protected function __construct(array $headers, ?StreamInterface $body, string $protocolVersion)
     {
@@ -70,7 +82,9 @@ abstract class Message implements MessageInterface
 
         $this->headers = $normalizedHeaders;
         $this->headerNames = $headerNames;
-        $this->body = $body ?? $this->createDefaultBodyStream();
+        if ($body !== null) {
+            $this->body = $body;
+        }
         $this->protocolVersion = $this->filterProtocolVersion($protocolVersion);
     }
 
@@ -182,13 +196,18 @@ abstract class Message implements MessageInterface
     #[\Override]
     public function getBody(): StreamInterface
     {
+        if (!isset($this->body)) {
+            /** @phpstan-ignore property.readOnlyAssignNotInConstructor (guarded by isset() above - assigned exactly once) */
+            $this->body = $this->createDefaultBodyStream();
+        }
+
         return $this->body;
     }
 
     #[\Override]
     public function withBody(StreamInterface $body): static
     {
-        if ($this->body === $body) {
+        if (isset($this->body) && $this->body === $body) {
             return $this;
         }
 

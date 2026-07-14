@@ -7,7 +7,6 @@ namespace Temant\HttpCore\Factory;
 use InvalidArgumentException;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\RequestInterface;
-use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
 use Temant\HttpCore\Request;
@@ -16,16 +15,14 @@ use Temant\HttpCore\Request;
  * PSR-17 factory for outgoing {@see Request} instances.
  *
  * Accepts either a URI string or an existing `UriInterface`; a string is
- * turned into one via the injected {@see UriFactoryInterface}.
+ * turned into one via the injected {@see UriFactoryInterface}. The body
+ * is deliberately left unset - {@see Request}'s own default is lazy, so
+ * there's no reason for the factory to force a stream resource open for
+ * every request when most callers never touch the body of a `GET`.
  */
 class RequestFactory implements RequestFactoryInterface
 {
-    /**
-     * @param StreamFactoryInterface $streamFactory
-     * @param UriFactoryInterface $uriFactory
-     */
     public function __construct(
-        private StreamFactoryInterface $streamFactory = new StreamFactory(),
         private UriFactoryInterface $uriFactory = new UriFactory()
     ) {
     }
@@ -47,8 +44,6 @@ class RequestFactory implements RequestFactoryInterface
             );
         }
 
-        $body = $this->streamFactory->createStream();
-
-        return new Request($method, $uri, [], $body);
+        return new Request($method, $uri);
     }
 }

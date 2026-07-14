@@ -7,7 +7,6 @@ namespace Temant\HttpCore;
 use InvalidArgumentException;
 use Psr\Http\Message\UriInterface;
 use Stringable;
-use Uri\Rfc3986\Uri as NativeUri;
 
 /**
  * A PSR-7 compatible, immutable URI value object.
@@ -16,32 +15,35 @@ use Uri\Rfc3986\Uri as NativeUri;
  * syntax) instead of mutating the current one, and every getter returns an
  * already-normalized value, exactly as PSR-7's `UriInterface` requires.
  *
- * ## Why this isn't a thin wrapper around PHP 8.5's native `Uri` extension
+ * ## Why this uses `parse_url()`, not PHP 8.5's native `Uri` extension
  *
- * PHP 8.5 ships two native URI parsers, and this class deliberately uses
- * only one of them, and only for one job:
+ * PHP 8.5 ships two native URI parsers (`Uri\Rfc3986\Uri`, `Uri\WhatWg\Url`),
+ * and this class was built around `Uri\Rfc3986\Uri::parse()` at first - it's
+ * a real RFC 3986 parser and strictly more correct than `parse_url()`
+ * (better handling of IPv6 literals, malformed input, etc.). Measuring it
+ * ended that experiment: parsing itself is only ~1.7x slower than
+ * `parse_url()`, but pulling the components back out through the
+ * extension's object API (`getRawHost()`, `getPort()`, `getScheme()`, ...)
+ * turned out to cost far more than the parse - about 5.5x slower than
+ * `parse_url()` end to end, benchmarked in `benchmarks/run.php`. For a
+ * value object constructed as often as this one, that's not a trade worth
+ * making for edge cases most real URLs don't hit, so parsing stays on
+ * `parse_url()`.
  *
- * - **Parsing a full URI string** (the constructor) delegates to
- *   `Uri\Rfc3986\Uri::parse()`. That's a real RFC 3986 parser and is
- *   strictly more correct than the historically quirky `parse_url()` it
- *   replaces (better handling of IPv6 literals, malformed input, etc.),
- *   with no PSR-7 trade-off: parsing doesn't need to be forgiving.
- * - **Mutating a single component** (`withPath()`, `withUserInfo()`, ...)
- *   deliberately does *not* delegate to either native class, because
- *   neither one matches what PSR-7 requires here:
- *   - `Uri\Rfc3986\Uri`'s `with*()` methods *reject* raw, unencoded input
- *     (they throw on a literal space instead of encoding it), whereas
- *     PSR-7 requires `withPath()` etc. to accept raw input and encode it.
- *   - `Uri\WhatWg\Url`'s `with*()` methods do auto-encode, but the WHATWG
- *     URL Standard also silently resolves `.`/`..` path segments and
- *     cannot represent a bare relative reference (a path with no scheme)
- *     at all — both of which PSR-7's `UriInterface` explicitly requires
- *     this class to support unchanged.
+ * Neither native class is used for mutating a single component
+ * (`withPath()`, `withUserInfo()`, ...) either, for a separate reason:
+ * neither one matches what PSR-7 requires here.
+ * - `Uri\Rfc3986\Uri`'s `with*()` methods *reject* raw, unencoded input
+ *   (they throw on a literal space instead of encoding it), whereas PSR-7
+ *   requires `withPath()` etc. to accept raw input and encode it.
+ * - `Uri\WhatWg\Url`'s `with*()` methods do auto-encode, but the WHATWG
+ *   URL Standard also silently resolves `.`/`..` path segments and cannot
+ *   represent a bare relative reference (a path with no scheme) at all -
+ *   both of which PSR-7's `UriInterface` explicitly requires this class to
+ *   support unchanged.
  *
- *   So component encoding stays hand-rolled here (`filterPath()`,
- *   userinfo encoding, the scheme regex). It's also cheaper: these are
- *   plain string operations on an already-parsed value, versus
- *   constructing and validating a whole new native URI object per call.
+ * So component encoding is hand-rolled (`filterPath()`, userinfo encoding,
+ * the scheme regex) - plain string operations on an already-parsed value.
  */
 final class Uri implements UriInterface, Stringable
 {
@@ -88,27 +90,21 @@ final class Uri implements UriInterface, Stringable
             return;
         }
 
-        $parsed = NativeUri::parse($uri);
-        if ($parsed === null) {
+        $parts = parse_url($uri);
+        if ($parts === false || (!isset($parts['host']) && !isset($parts['path']))) {
             throw new InvalidArgumentException("Invalid URI: {$uri}");
         }
 
-        $host = $parsed->getRawHost() ?? '';
-        $path = $parsed->getRawPath();
-        if ($host === '' && $path === '') {
-            throw new InvalidArgumentException("Invalid URI: {$uri}");
-        }
-
-        $port = $parsed->getPort();
+        $port = $parts['port'] ?? null;
         $this->validatePort($port);
 
-        $this->scheme = strtolower($parsed->getScheme() ?? '');
-        $this->userInfo = $this->encodeUserInfo($parsed->getRawUsername(), $parsed->getRawPassword());
-        $this->host = strtolower($host);
+        $this->scheme = isset($parts['scheme']) ? strtolower($parts['scheme']) : '';
+        $this->userInfo = $this->encodeUserInfo($parts['user'] ?? null, $parts['pass'] ?? null);
+        $this->host = isset($parts['host']) ? strtolower($parts['host']) : '';
         $this->port = $port;
-        $this->path = $this->filterPath($path);
-        $this->query = $parsed->getQuery() ?? '';
-        $this->fragment = $parsed->getFragment() ?? '';
+        $this->path = isset($parts['path']) ? $this->filterPath($parts['path']) : '';
+        $this->query = $parts['query'] ?? '';
+        $this->fragment = $parts['fragment'] ?? '';
     }
 
     /**
