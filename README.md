@@ -1,6 +1,6 @@
 # Temant HTTP Core
 
-Temant HTTP Core is a [PSR-7](https://www.php-fig.org/psr/psr-7/) and [PSR-17](https://www.php-fig.org/psr/psr-17/) implementation built for PHP 8.5. It gives you immutable request, response, stream, URI, and uploaded-file objects with no dependencies beyond the PSR interfaces themselves.
+Temant HTTP Core is a [PSR-7](https://www.php-fig.org/psr/psr-7/), [PSR-17](https://www.php-fig.org/psr/psr-17/), and [PSR-15](https://www.php-fig.org/psr/psr-15/) implementation built for PHP 8.5. It gives you immutable request, response, stream, URI, and uploaded-file objects, plus a middleware dispatcher to run them through, with no dependencies beyond the PSR interfaces themselves.
 
 Unlike most PSR-7 packages still targeting PHP 7-era baselines, this one is written *for* PHP 8.5: every `with*()` method is a one-liner built on the new `clone with` syntax, and the properties behind it are all `readonly`. The result is less code, fewer places for a bug to hide, and a measurably fast implementation (see [Performance](#performance) below).
 
@@ -8,12 +8,13 @@ Unlike most PSR-7 packages still targeting PHP 7-era baselines, this one is writ
 
 ## Features
 
-- Fully compliant with [PSR-7](https://www.php-fig.org/psr/psr-7/) and [PSR-17](https://www.php-fig.org/psr/psr-17/)
+- Fully compliant with [PSR-7](https://www.php-fig.org/psr/psr-7/), [PSR-17](https://www.php-fig.org/psr/psr-17/), and [PSR-15](https://www.php-fig.org/psr/psr-15/)
 - Truly immutable: every value object property is `readonly`
 - `HttpMethod` and `HttpStatus` enums for working with verbs and status codes without magic strings/ints
+- `MiddlewareDispatcher` runs a PSR-15 middleware queue immutably - safe even if a middleware calls the next handler more than once
 - Benchmarked faster than Guzzle, Nyholm, Laminas Diactoros, and Slim on URI construction (see [Performance](#performance))
 - Tested (PHPUnit) and statically analyzed at PHPStan `level: max`
-- Zero runtime dependencies beyond `psr/http-message` and `psr/http-factory`
+- Zero runtime dependencies beyond the `psr/*` interface packages (`http-message`, `http-factory`, `http-server-handler`, `http-server-middleware`)
 
 ---
 
@@ -22,6 +23,8 @@ Unlike most PSR-7 packages still targeting PHP 7-era baselines, this one is writ
 - PHP `8.5` or higher
 - `psr/http-message` ^2.0
 - `psr/http-factory` ^1.1
+- `psr/http-server-handler` ^1.0
+- `psr/http-server-middleware` ^1.0
 
 ---
 
@@ -116,6 +119,24 @@ foreach ($serverRequest->getUploadedFiles() as $file) {
     $file->moveTo('/var/uploads/' . $file->getClientFilename());
 }
 ```
+
+### Middleware (PSR-15)
+
+`MiddlewareDispatcher` runs a fixed queue of [PSR-15](https://www.php-fig.org/psr/psr-15/) `MiddlewareInterface` middleware ahead of a final fallback handler (typically your router's dispatch handler):
+
+```php
+use Temant\HttpCore\Middleware\MiddlewareDispatcher;
+use Temant\HttpCore\Factory\ResponseFactory;
+
+$dispatcher = new MiddlewareDispatcher(
+    [$authMiddleware, $loggingMiddleware],
+    $router, // any Psr\Http\Server\RequestHandlerInterface
+);
+
+$response = $dispatcher->handle($serverRequest);
+```
+
+Each middleware gets a fresh dispatcher covering only the middleware still after it, rather than one shared, mutable "advance to the next one" handler - so calling `$handler->handle($request)` more than once inside a middleware (a retry, or fanning a request out) re-runs the same remaining queue correctly every time, instead of silently skipping whatever a previous call already consumed. There's no default fallback handler; forgetting to supply a real one is a bug worth a loud constructor-time requirement, not something worth silently defaulting to a 404.
 
 ---
 
@@ -278,6 +299,7 @@ Src/
     Uri.php
     UploadedFile.php
   Factory/                  PSR-17 factories (Temant\HttpCore\Factory\)
+  Middleware/               PSR-15 middleware dispatcher (Temant\HttpCore\Middleware\)
   Enum/                     HttpMethod/HttpStatus convenience enums (Temant\HttpCore\Enum\)
   Exceptions/                Typed Stream exceptions (Temant\HttpCore\Exceptions\)
 Tests/                      PHPUnit test suite (PSR-4: Temant\HttpCore\Tests\), mirrors Src/
