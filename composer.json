@@ -18,8 +18,7 @@
     },
     "scripts": {
         "analyse": "./vendor/bin/phpstan",
-        "test": "./vendor/bin/phpunit",
-        "bench": "php benchmarks/run.php"
+        "test": "./vendor/bin/phpunit"
     },
     "autoload": {
         "psr-4": {
@@ -28,8 +27,7 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Temant\\HttpCore\\Tests\\": "Tests/",
-            "Temant\\HttpCore\\Benchmarks\\": "benchmarks/"
+            "Temant\\HttpCore\\Tests\\": "Tests/"
         }
     },
     "minimum-stability": "stable",

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Temant\HttpCore;
 
 /**
- * Standard HTTP status codes and their default reason phrases (RFC 9110 and friends).
+ * The standard HTTP status codes and their default reason phrases, per
+ * RFC 9110 and the registered extension RFCs (WebDAV, `Early Hints`, ...).
  *
- * This is an additive convenience API; {@see Response} accepts any integer
- * status code in the 100-599 range regardless of whether it has a case here.
+ * This is a convenience API, not a constraint: {@see Response} accepts any
+ * integer status code in the 100-599 range whether or not it has a case
+ * here, per PSR-7 - see {@see Response::__construct()}.
  */
 enum HttpStatus: int
 {
@@ -85,7 +87,8 @@ enum HttpStatus: int
     case NetworkAuthenticationRequired = 511;
 
     /**
-     * The standard reason phrase associated with this status code.
+     * The standard reason phrase associated with this status code (e.g.
+     * `Not Found` for {@see self::NotFound}).
      */
     public function reasonPhrase(): string
     {
@@ -133,7 +136,7 @@ enum HttpStatus: int
             self::UnsupportedMediaType => 'Unsupported Media Type',
             self::RangeNotSatisfiable => 'Range Not Satisfiable',
             self::ExpectationFailed => 'Expectation Failed',
-            self::ImATeapot => 'I\'m a teapot',
+            self::ImATeapot => "I'm a teapot",
             self::MisdirectedRequest => 'Misdirected Request',
             self::UnprocessableEntity => 'Unprocessable Entity',
             self::Locked => 'Locked',
@@ -159,34 +162,37 @@ enum HttpStatus: int
         };
     }
 
+    /** Whether this is a 1xx status - the request was received and is being processed. */
     public function isInformational(): bool
     {
         return $this->statusClass() === 1;
     }
 
+    /** Whether this is a 2xx status - the request was successfully received, understood, and accepted. */
     public function isSuccessful(): bool
     {
         return $this->statusClass() === 2;
     }
 
+    /** Whether this is a 3xx status - further action is needed to complete the request. */
     public function isRedirection(): bool
     {
         return $this->statusClass() === 3;
     }
 
+    /** Whether this is a 4xx status - the request contains a client error. */
     public function isClientError(): bool
     {
         return $this->statusClass() === 4;
     }
 
+    /** Whether this is a 5xx status - the server failed to fulfil a valid request. */
     public function isServerError(): bool
     {
         return $this->statusClass() === 5;
     }
 
-    /**
-     * The status "class" digit (1 for 1xx, 2 for 2xx, ...).
-     */
+    /** The leading digit of the status code (1 for 1xx, 2 for 2xx, ...). */
     private function statusClass(): int
     {
         return intdiv($this->value, 100);

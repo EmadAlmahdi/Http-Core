@@ -15,46 +15,37 @@ use Temant\HttpCore\Stream;
  */
 class StreamFactory implements StreamFactoryInterface
 {
-    /**
-     * @inheritDoc 
-     */
     #[\Override]
     public function createStream(string $content = ''): StreamInterface
     {
-        $resource = fopen('php://memory', 'r+');
-
+        $resource = \fopen('php://memory', 'r+');
         if ($resource === false) {
             // @codeCoverageIgnoreStart
-            throw new RuntimeException("Couldn't create a stream");
+            throw new RuntimeException("Couldn't create a stream.");
             // @codeCoverageIgnoreEnd
         }
 
-        fwrite($resource, $content);
-        rewind($resource);
+        \fwrite($resource, $content);
+        \rewind($resource);
 
         return new Stream($resource);
     }
 
-    /**
-     * @inheritDoc 
-     */
     #[\Override]
     public function createStreamFromFile(string $filename, string $mode = 'r'): StreamInterface
     {
-        if (empty($filename)) {
-            throw new RuntimeException("Filename must not be empty");
+        if ($filename === '') {
+            throw new RuntimeException('Filename must not be empty.');
         }
 
-        $resource = @fopen($filename, $mode);
+        $resource = @\fopen($filename, $mode);
         if ($resource === false) {
-            throw new RuntimeException("Unable to open file: {$filename}");
+            throw new RuntimeException("Unable to open file: {$filename}.");
         }
+
         return new Stream($resource);
     }
 
-    /**
-     * @inheritDoc 
-     */
     #[\Override]
     public function createStreamFromResource($resource): StreamInterface
     {

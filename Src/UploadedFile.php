@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 namespace Temant\HttpCore;
 
-use Psr\Http\Message\UploadedFileInterface;
-use Psr\Http\Message\StreamInterface;
-use RuntimeException;
 use InvalidArgumentException;
+use Psr\Http\Message\StreamInterface;
+use Psr\Http\Message\UploadedFileInterface;
+use RuntimeException;
 
 /**
  * PSR-7 Uploaded File implementation.
  *
- * Wraps one entry from a file upload, whether it came from `$_FILES`
- * (via {@see \Temant\HttpCore\Factory\UploadedFileFactory}) or was built
- * directly from a stream or path. A file can only be moved once:
- * {@see moveTo()} marks it as moved, and both `moveTo()` and
- * {@see getStream()} refuse to run again afterward, mirroring how PHP's
- * own `move_uploaded_file()` behaves for a real upload.
+ * Wraps one entry from a file upload, whether it came from `$_FILES` (via
+ * {@see \Temant\HttpCore\Factory\UploadedFileFactory}) or was built
+ * directly from a stream or path. A file can only be moved once: {@see
+ * moveTo()} marks it as moved, and both `moveTo()` and {@see getStream()}
+ * refuse to run again afterward, mirroring how PHP's own
+ * `move_uploaded_file()` behaves for a real upload.
  *
  * When the wrapped stream is backed by a real file on disk, {@see moveTo()}
  * moves it with `move_uploaded_file()` (or `rename()` under a CLI SAPI,
@@ -38,15 +38,12 @@ final class UploadedFile implements UploadedFileInterface
     private bool $moved = false;
 
     /**
-     * Construct a new UploadedFile instance.
-     *
-     * @param StreamInterface|string $stream Underlying stream or file path
-     * @param ?int $size The file size in bytes
-     * @param int $error PHP file upload error code
-     * @param ?string $clientFilename The filename sent by the client
-     * @param ?string $clientMediaType The media type sent by the client
-     *
-     * @throws InvalidArgumentException If the error code is invalid or stream cannot be created
+     * @param StreamInterface|string $stream Underlying stream, or a path to open one from.
+     * @param ?string $clientFilename The filename sent by the client.
+     * @param ?string $clientMediaType The media type sent by the client.
+     * @param ?int $size The file size in bytes, if known.
+     * @param int $error One of PHP's `UPLOAD_ERR_*` constants.
+     * @throws InvalidArgumentException if `$error` is invalid, or `$stream` is a path that can't be opened.
      */
     public function __construct(
         StreamInterface|string $stream,
@@ -59,38 +56,54 @@ final class UploadedFile implements UploadedFileInterface
             throw new InvalidArgumentException('Invalid upload error code.');
         }
 
-        if (\is_string($stream)) {
-            $resource = @\fopen($stream, 'rb');
-            if ($resource === false) {
-                throw new InvalidArgumentException("Unable to open file: {$stream}");
-            }
-            $this->stream = new Stream($resource);
-        } else {
-            $this->stream = $stream;
-        }
+        $this->stream = \is_string($stream) ? self::openFile($stream) : $stream;
     }
 
+    /**
+     * @throws InvalidArgumentException if the file can't be opened.
+     */
+    private static function openFile(string $path): Stream
+    {
+        $resource = @\fopen($path, 'rb');
+        if ($resource === false) {
+            throw new InvalidArgumentException("Unable to open file: {$path}.");
+        }
+
+        return new Stream($resource);
+    }
+
+    /**
+     * @throws RuntimeException if the file has already been moved, or the upload itself failed.
+     */
     #[\Override]
     public function getStream(): StreamInterface
     {
         if ($this->moved) {
             throw new RuntimeException('Uploaded file has already been moved.');
         }
+
         if ($this->error !== \UPLOAD_ERR_OK) {
             throw new RuntimeException('Cannot retrieve stream due to upload error.');
         }
+
         return $this->stream;
     }
 
+    /**
+     * @throws InvalidArgumentException if `$targetPath` is empty.
+     * @throws RuntimeException if the file has already been moved, the upload failed, or the move itself fails.
+     */
     #[\Override]
     public function moveTo(string $targetPath): void
     {
         if ($this->moved) {
             throw new RuntimeException('Uploaded file has already been moved.');
         }
+
         if (\trim($targetPath) === '') {
             throw new InvalidArgumentException('Invalid target path.');
         }
+
         if ($this->error !== \UPLOAD_ERR_OK) {
             throw new RuntimeException('Cannot move file due to upload error.');
         }
@@ -108,12 +121,12 @@ final class UploadedFile implements UploadedFileInterface
     }
 
     /**
-     * Moves a stream that's backed by a real file on disk, using the
+     * Moves a stream backed by a real file on disk, using the
      * SAPI-appropriate native function so the original is both verified
      * (in a real request) and removed as part of the same call - see the
      * class docblock for why that verification matters.
      *
-     * @throws RuntimeException if the move fails
+     * @throws RuntimeException if the move fails.
      */
     private function moveRealFile(string $sourcePath, string $targetPath): void
     {
@@ -122,7 +135,7 @@ final class UploadedFile implements UploadedFileInterface
             : @\move_uploaded_file($sourcePath, $targetPath);
 
         if ($moved === false) {
-            throw new RuntimeException("Unable to move uploaded file to: {$targetPath}");
+            throw new RuntimeException("Unable to move uploaded file to: {$targetPath}.");
         }
     }
 
@@ -132,7 +145,7 @@ final class UploadedFile implements UploadedFileInterface
      * testing) - there's no filesystem move available for that, and
      * nothing else to remove afterward besides the stream itself.
      *
-     * @throws RuntimeException if the destination can't be opened
+     * @throws RuntimeException if the destination can't be opened.
      */
     private function copyStreamTo(StreamInterface $stream, string $targetPath): void
     {
@@ -142,7 +155,7 @@ final class UploadedFile implements UploadedFileInterface
 
         $dest = @\fopen($targetPath, 'wb');
         if ($dest === false) {
-            throw new RuntimeException("Unable to open destination: {$targetPath}");
+            throw new RuntimeException("Unable to open destination: {$targetPath}.");
         }
 
         while (!$stream->eof()) {
