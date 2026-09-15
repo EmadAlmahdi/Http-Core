@@ -9,6 +9,9 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UriInterface;
 
+use function preg_match;
+use function strtolower;
+
 /**
  * PSR-7 HTTP Request implementation.
  *
@@ -28,6 +31,7 @@ use Psr\Http\Message\UriInterface;
  * Request('get', $uri)` keeps `getMethod() === 'get'` rather than silently
  * uppercasing it.
  *
+ * @see RequestInterface The PSR-7 contract this class implements.
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 readonly class Request extends Message implements RequestInterface
@@ -96,7 +100,10 @@ readonly class Request extends Message implements RequestInterface
         $this->requestTarget = '';
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see RequestInterface::getRequestTarget()
+     */
     public function getRequestTarget(): string
     {
         /** @phpstan-ignore notIdentical.alwaysFalse (phpstan doesn't yet track PHP 8.5 clone-with reinitialization of readonly properties) */
@@ -118,28 +125,33 @@ readonly class Request extends Message implements RequestInterface
     }
 
     /**
+     * @inheritDoc
+     * @see RequestInterface::withRequestTarget()
      * @throws InvalidArgumentException if `$requestTarget` contains whitespace.
      */
-    #[\Override]
     public function withRequestTarget(string $requestTarget): static
     {
-        if (\preg_match(self::REQUEST_TARGET_PATTERN, $requestTarget)) {
+        if (preg_match(self::REQUEST_TARGET_PATTERN, $requestTarget)) {
             throw new InvalidArgumentException('Request target cannot contain whitespace.');
         }
 
         return clone($this, ['requestTarget' => $requestTarget]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see RequestInterface::getMethod()
+     */
     public function getMethod(): string
     {
         return $this->method;
     }
 
     /**
+     * @inheritDoc
+     * @see RequestInterface::withMethod()
      * @throws InvalidArgumentException for an invalid method.
      */
-    #[\Override]
     public function withMethod(string $method): static
     {
         if ($this->method === $method) {
@@ -151,13 +163,19 @@ readonly class Request extends Message implements RequestInterface
         return clone($this, ['method' => $method]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see RequestInterface::getUri()
+     */
     public function getUri(): UriInterface
     {
         return $this->uri;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see RequestInterface::withUri()
+     */
     public function withUri(UriInterface $uri, bool $preserveHost = false): static
     {
         if ($uri === $this->uri) {
@@ -181,7 +199,7 @@ readonly class Request extends Message implements RequestInterface
     private static function hasHostHeader(array $headers): bool
     {
         foreach ($headers as $name => $ignored) {
-            if (\strtolower((string) $name) === 'host') {
+            if (strtolower((string) $name) === 'host') {
                 return true;
             }
         }
@@ -207,7 +225,7 @@ readonly class Request extends Message implements RequestInterface
             throw new InvalidArgumentException('HTTP method cannot be empty.');
         }
 
-        if (!\preg_match(self::METHOD_PATTERN, $method)) {
+        if (!preg_match(self::METHOD_PATTERN, $method)) {
             throw new InvalidArgumentException("Invalid HTTP method: {$method}.");
         }
     }

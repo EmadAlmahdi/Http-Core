@@ -18,6 +18,7 @@ use Psr\Http\Message\StreamInterface;
  * an empty string for a non-standard code with no phrase of its own -
  * exactly as PSR-7 specifies.
  *
+ * @see ResponseInterface The PSR-7 contract this class implements.
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 final readonly class Response extends Message implements ResponseInterface
@@ -49,16 +50,20 @@ final readonly class Response extends Message implements ResponseInterface
         $this->reasonPhrase = $reasonPhrase !== '' ? $this->filterHeaderValue($reasonPhrase)[0] : '';
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see ResponseInterface::getStatusCode()
+     */
     public function getStatusCode(): int
     {
         return $this->statusCode;
     }
 
     /**
+     * @inheritDoc
+     * @see ResponseInterface::withStatus()
      * @throws InvalidArgumentException for an invalid status code.
      */
-    #[\Override]
     public function withStatus(int $code, string $reasonPhrase = ''): static
     {
         self::assertValidStatusCode($code);
@@ -73,7 +78,10 @@ final readonly class Response extends Message implements ResponseInterface
         ]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see ResponseInterface::getReasonPhrase()
+     */
     public function getReasonPhrase(): string
     {
         if ($this->reasonPhrase !== '') {

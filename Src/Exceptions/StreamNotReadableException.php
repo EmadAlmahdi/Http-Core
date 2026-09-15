@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Temant\HttpCore\Exceptions;
 
+use Temant\HttpCore\Stream;
 use Throwable;
 
 /**
- * Thrown by {@see \Temant\HttpCore\Stream::read()} and {@see
- * \Temant\HttpCore\Stream::getContents()} when the wrapped resource wasn't
- * opened in a readable mode.
+ * Thrown by {@see Stream::read()} and {@see Stream::getContents()} when
+ * the wrapped resource wasn't opened in a readable mode.
  *
  * Readability is fixed once, at construction, from the resource's own mode
  * string - so this always means the stream was opened for the wrong

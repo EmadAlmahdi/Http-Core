@@ -9,36 +9,48 @@ use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Temant\HttpCore\Stream;
 
+use function fopen;
+use function fwrite;
+use function rewind;
+
 /**
  * PSR-17 factory for {@see Stream} instances, backed by `php://memory`
  * (for in-memory content) or a real file handle.
+ *
+ * @see StreamFactoryInterface The PSR-17 contract this class implements.
  */
 class StreamFactory implements StreamFactoryInterface
 {
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamFactoryInterface::createStream()
+     */
     public function createStream(string $content = ''): StreamInterface
     {
-        $resource = \fopen('php://memory', 'r+');
+        $resource = fopen('php://memory', 'r+');
         if ($resource === false) {
             // @codeCoverageIgnoreStart
             throw new RuntimeException("Couldn't create a stream.");
             // @codeCoverageIgnoreEnd
         }
 
-        \fwrite($resource, $content);
-        \rewind($resource);
+        fwrite($resource, $content);
+        rewind($resource);
 
         return new Stream($resource);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamFactoryInterface::createStreamFromFile()
+     */
     public function createStreamFromFile(string $filename, string $mode = 'r'): StreamInterface
     {
         if ($filename === '') {
             throw new RuntimeException('Filename must not be empty.');
         }
 
-        $resource = @\fopen($filename, $mode);
+        $resource = @fopen($filename, $mode);
         if ($resource === false) {
             throw new RuntimeException("Unable to open file: {$filename}.");
         }
@@ -46,7 +58,10 @@ class StreamFactory implements StreamFactoryInterface
         return new Stream($resource);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamFactoryInterface::createStreamFromResource()
+     */
     public function createStreamFromResource($resource): StreamInterface
     {
         return new Stream($resource);

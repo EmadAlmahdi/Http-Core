@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Temant\HttpCore\Exceptions;
 
+use Temant\HttpCore\Stream;
 use Throwable;
 
 /**
- * Thrown by {@see \Temant\HttpCore\Stream::write()} when the wrapped
- * resource wasn't opened in a writable mode.
+ * Thrown by {@see Stream::write()} when the wrapped resource wasn't
+ * opened in a writable mode.
  *
  * Writability is fixed once, at construction, from the resource's own mode
  * string - so this always means the stream was opened for the wrong

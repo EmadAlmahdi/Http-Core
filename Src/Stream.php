@@ -12,6 +12,24 @@ use Temant\HttpCore\Exceptions\StreamNotSeekableException;
 use Temant\HttpCore\Exceptions\StreamNotWritableException;
 use Throwable;
 
+use function clearstatcache;
+use function fclose;
+use function feof;
+use function fread;
+use function fseek;
+use function fstat;
+use function ftell;
+use function fwrite;
+use function get_resource_type;
+use function is_resource;
+use function is_string;
+use function sprintf;
+use function str_replace;
+use function stream_get_contents;
+use function stream_get_meta_data;
+
+use const SEEK_SET;
+
 /**
  * PSR-7 stream implementation wrapping a native PHP stream resource.
  *
@@ -24,6 +42,7 @@ use Throwable;
  * string at construction time, and cached for the wrapper's lifetime -
  * none of those three can change for an already-open PHP stream resource.
  *
+ * @see StreamInterface The PSR-7 contract this class implements.
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 final class Stream implements StreamInterface
@@ -63,12 +82,12 @@ final class Stream implements StreamInterface
      */
     public function __construct($stream)
     {
-        if (!\is_resource($stream) || \get_resource_type($stream) !== 'stream') {
+        if (!is_resource($stream) || get_resource_type($stream) !== 'stream') {
             throw new StreamException('Stream must be a valid resource of type stream.');
         }
 
         $this->resource = $stream;
-        $this->metadata = \stream_get_meta_data($stream);
+        $this->metadata = stream_get_meta_data($stream);
 
         /** @var bool $seekable */
         $seekable = $this->metadata['seekable'];
@@ -76,12 +95,15 @@ final class Stream implements StreamInterface
 
         /** @var string $rawMode */
         $rawMode = $this->metadata['mode'];
-        $mode = \str_replace(['b', 't'], '', $rawMode);
+        $mode = str_replace(['b', 't'], '', $rawMode);
         $this->readable = isset(self::READABLE_MODES[$mode]);
         $this->writable = isset(self::WRITABLE_MODES[$mode]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::__toString()
+     */
     public function __toString(): string
     {
         try {
@@ -96,19 +118,23 @@ final class Stream implements StreamInterface
         return '';
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::close()
+     */
     public function close(): void
     {
         $resource = $this->detach();
         if ($resource !== null) {
-            \fclose($resource);
+            fclose($resource);
         }
     }
 
     /**
+     * @inheritDoc
+     * @see StreamInterface::detach()
      * @return resource|null
      */
-    #[\Override]
     public function detach()
     {
         $resource = $this->resource;
@@ -122,7 +148,10 @@ final class Stream implements StreamInterface
         return $resource;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::getSize()
+     */
     public function getSize(): ?int
     {
         if ($this->size !== null) {
@@ -133,25 +162,26 @@ final class Stream implements StreamInterface
             return null;
         }
 
-        \clearstatcache(true, is_string($this->metadata['uri'] ?? null) ? $this->metadata['uri'] : '');
+        clearstatcache(true, is_string($this->metadata['uri'] ?? null) ? $this->metadata['uri'] : '');
 
-        $stats = \fstat($this->resource);
+        $stats = fstat($this->resource);
 
         return $this->size = $stats !== false ? $stats['size'] : null;
     }
 
     /**
+     * @inheritDoc
+     * @see StreamInterface::tell()
      * @throws StreamDetachedException if the stream is detached.
      * @throws StreamException if the position can't be determined.
      */
-    #[\Override]
     public function tell(): int
     {
         if ($this->resource === null) {
             throw new StreamDetachedException();
         }
 
-        $position = \ftell($this->resource);
+        $position = ftell($this->resource);
         if ($position === false) {
             throw new StreamException('Unable to determine stream position.');
         }
@@ -159,25 +189,32 @@ final class Stream implements StreamInterface
         return $position;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::eof()
+     */
     public function eof(): bool
     {
-        return $this->resource === null || \feof($this->resource);
+        return $this->resource === null || feof($this->resource);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::isSeekable()
+     */
     public function isSeekable(): bool
     {
         return $this->seekable;
     }
 
     /**
+     * @inheritDoc
+     * @see StreamInterface::seek()
      * @throws StreamDetachedException if the stream is detached.
      * @throws StreamNotSeekableException if the stream is not seekable.
      * @throws StreamException if the seek fails.
      */
-    #[\Override]
-    public function seek(int $offset, int $whence = \SEEK_SET): void
+    public function seek(int $offset, int $whence = SEEK_SET): void
     {
         if ($this->resource === null) {
             throw new StreamDetachedException();
@@ -187,34 +224,39 @@ final class Stream implements StreamInterface
             throw new StreamNotSeekableException();
         }
 
-        if (\fseek($this->resource, $offset, $whence) === -1) {
-            throw new StreamException(\sprintf('Unable to seek to offset %d with whence %d.', $offset, $whence));
+        if (fseek($this->resource, $offset, $whence) === -1) {
+            throw new StreamException(sprintf('Unable to seek to offset %d with whence %d.', $offset, $whence));
         }
     }
 
     /**
+     * @inheritDoc
+     * @see StreamInterface::rewind()
      * @throws StreamDetachedException if the stream is detached.
      * @throws StreamNotSeekableException if the stream is not seekable.
      * @throws StreamException if the seek fails.
      */
-    #[\Override]
     public function rewind(): void
     {
         $this->seek(0);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::isWritable()
+     */
     public function isWritable(): bool
     {
         return $this->writable;
     }
 
     /**
+     * @inheritDoc
+     * @see StreamInterface::write()
      * @throws StreamDetachedException if the stream is detached.
      * @throws StreamNotWritableException if the stream is not writable.
      * @throws StreamException if the write fails.
      */
-    #[\Override]
     public function write(string $string): int
     {
         if ($this->resource === null) {
@@ -225,7 +267,7 @@ final class Stream implements StreamInterface
             throw new StreamNotWritableException();
         }
 
-        $bytesWritten = \fwrite($this->resource, $string);
+        $bytesWritten = fwrite($this->resource, $string);
         if ($bytesWritten === false) {
             throw new StreamException('Unable to write to stream.');
         }
@@ -235,18 +277,22 @@ final class Stream implements StreamInterface
         return $bytesWritten;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::isReadable()
+     */
     public function isReadable(): bool
     {
         return $this->readable;
     }
 
     /**
+     * @inheritDoc
+     * @see StreamInterface::read()
      * @throws StreamDetachedException if the stream is detached.
      * @throws StreamNotReadableException if the stream is not readable.
      * @throws StreamException if `$length` is negative, or the read fails.
      */
-    #[\Override]
     public function read(int $length): string
     {
         if ($this->resource === null) {
@@ -265,7 +311,7 @@ final class Stream implements StreamInterface
             return '';
         }
 
-        $data = \fread($this->resource, $length);
+        $data = fread($this->resource, $length);
         if ($data === false) {
             throw new StreamException('Unable to read from stream.');
         }
@@ -274,11 +320,12 @@ final class Stream implements StreamInterface
     }
 
     /**
+     * @inheritDoc
+     * @see StreamInterface::getContents()
      * @throws StreamDetachedException if the stream is detached.
      * @throws StreamNotReadableException if the stream is not readable.
      * @throws StreamException if reading to the end fails.
      */
-    #[\Override]
     public function getContents(): string
     {
         if ($this->resource === null) {
@@ -289,15 +336,18 @@ final class Stream implements StreamInterface
             throw new StreamNotReadableException();
         }
 
-        $contents = \stream_get_contents($this->resource);
-        if ($contents === false || ($contents === '' && !\feof($this->resource))) {
+        $contents = stream_get_contents($this->resource);
+        if ($contents === false || ($contents === '' && !feof($this->resource))) {
             throw new StreamException('Unable to get stream contents.');
         }
 
         return $contents;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see StreamInterface::getMetadata()
+     */
     public function getMetadata(?string $key = null)
     {
         if ($this->resource === null) {

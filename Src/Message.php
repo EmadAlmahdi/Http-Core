@@ -9,6 +9,12 @@ use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 
+use function fopen;
+use function implode;
+use function is_array;
+use function preg_match;
+use function strtolower;
+
 /**
  * Shared plumbing for {@see Request} and {@see Response}: protocol version,
  * headers, and the body stream.
@@ -36,6 +42,7 @@ use RuntimeException;
  * time nobody ever reads the (empty) body of a `GET` request - paying for
  * an `fopen()` call that's thrown away unread is pure waste.
  *
+ * @see MessageInterface The PSR-7 contract this class implements.
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 abstract readonly class Message implements MessageInterface
@@ -74,7 +81,7 @@ abstract readonly class Message implements MessageInterface
      *
      * @var array<string, string[]>
      */
-    protected readonly array $headers;
+    protected array $headers;
 
     /**
      * Case-insensitive lookup index: lowercased name => the exact-case key
@@ -82,7 +89,7 @@ abstract readonly class Message implements MessageInterface
      *
      * @var array<string, string>
      */
-    protected readonly array $headerNames;
+    protected array $headerNames;
 
     /**
      * Left uninitialized until {@see getBody()} is first called, unless an
@@ -90,10 +97,10 @@ abstract readonly class Message implements MessageInterface
      *
      * @phpstan-ignore property.uninitializedReadonly (intentionally lazy - see getBody())
      */
-    protected readonly StreamInterface $body;
+    protected StreamInterface $body;
 
     /** HTTP protocol version, e.g. `'1.0'`, `'1.1'`, `'2'`. */
-    protected readonly string $protocolVersion;
+    protected string $protocolVersion;
 
     /**
      * @param array<string, string|string[]> $headers
@@ -106,7 +113,7 @@ abstract readonly class Message implements MessageInterface
         foreach ($headers as $name => $value) {
             $name = $this->filterHeaderName((string) $name);
             $normalizedHeaders[$name] = $this->filterHeaderValue($value);
-            $headerNames[\strtolower($name)] = $name;
+            $headerNames[strtolower($name)] = $name;
         }
 
         $this->headers = $normalizedHeaders;
@@ -117,13 +124,20 @@ abstract readonly class Message implements MessageInterface
         $this->protocolVersion = $this->filterProtocolVersion($protocolVersion);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::getProtocolVersion()
+     */
     public function getProtocolVersion(): string
     {
         return $this->protocolVersion;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::withProtocolVersion()
+     * @throws InvalidArgumentException for an unsupported protocol version.
+     */
     public function withProtocolVersion(string $version): static
     {
         if ($this->protocolVersion === $version) {
@@ -133,44 +147,57 @@ abstract readonly class Message implements MessageInterface
         return clone($this, ['protocolVersion' => $this->filterProtocolVersion($version)]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::getHeaders()
+     */
     public function getHeaders(): array
     {
         return $this->headers;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::hasHeader()
+     */
     public function hasHeader(string $name): bool
     {
-        return isset($this->headerNames[\strtolower($name)]);
+        return isset($this->headerNames[strtolower($name)]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::getHeader()
+     */
     public function getHeader(string $name): array
     {
-        $exact = $this->headerNames[\strtolower($name)] ?? null;
+        $exact = $this->headerNames[strtolower($name)] ?? null;
 
         return $exact !== null ? $this->headers[$exact] : [];
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::getHeaderLine()
+     */
     public function getHeaderLine(string $name): string
     {
         $header = $this->getHeader($name);
 
-        return $header === [] ? '' : \implode(', ', $header);
+        return $header === [] ? '' : implode(', ', $header);
     }
 
     /**
+     * @inheritDoc
+     * @see MessageInterface::withHeader()
      * @param string|string[] $value
      * @throws InvalidArgumentException for an invalid header name or value.
      */
-    #[\Override]
     public function withHeader(string $name, $value): static
     {
         $name = $this->filterHeaderName($name);
         $value = $this->filterHeaderValue($value);
-        $lower = \strtolower($name);
+        $lower = strtolower($name);
         $existing = $this->headerNames[$lower] ?? null;
 
         // Avoid an unnecessary clone when setting a header to what it already is.
@@ -191,15 +218,16 @@ abstract readonly class Message implements MessageInterface
     }
 
     /**
+     * @inheritDoc
+     * @see MessageInterface::withAddedHeader()
      * @param string|string[] $value
      * @throws InvalidArgumentException for an invalid header name or value.
      */
-    #[\Override]
     public function withAddedHeader(string $name, $value): static
     {
         $name = $this->filterHeaderName($name);
         $value = $this->filterHeaderValue($value);
-        $lower = \strtolower($name);
+        $lower = strtolower($name);
         $existing = $this->headerNames[$lower] ?? null;
 
         if ($existing !== null) {
@@ -215,10 +243,13 @@ abstract readonly class Message implements MessageInterface
         ]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::withoutHeader()
+     */
     public function withoutHeader(string $name): static
     {
-        $lower = \strtolower($name);
+        $lower = strtolower($name);
         $existing = $this->headerNames[$lower] ?? null;
 
         if ($existing === null) {
@@ -234,7 +265,10 @@ abstract readonly class Message implements MessageInterface
         return clone($this, ['headers' => $headers, 'headerNames' => $headerNames]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::getBody()
+     */
     public function getBody(): StreamInterface
     {
         if (!isset($this->body)) {
@@ -245,7 +279,10 @@ abstract readonly class Message implements MessageInterface
         return $this->body;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see MessageInterface::withBody()
+     */
     public function withBody(StreamInterface $body): static
     {
         if (isset($this->body) && $this->body === $body) {
@@ -263,7 +300,7 @@ abstract readonly class Message implements MessageInterface
      */
     protected function filterHeaderName(string $name): string
     {
-        if ($name === '' || !\preg_match(self::HEADER_NAME_PATTERN, $name)) {
+        if ($name === '' || !preg_match(self::HEADER_NAME_PATTERN, $name)) {
             throw new InvalidArgumentException("Invalid header name: \"{$name}\".");
         }
 
@@ -288,7 +325,7 @@ abstract readonly class Message implements MessageInterface
      */
     protected function filterHeaderValue(array|string $value): array
     {
-        $values = \is_array($value) ? $value : [$value];
+        $values = is_array($value) ? $value : [$value];
 
         if ($values === []) {
             throw new InvalidArgumentException('Header value cannot be an empty array.');
@@ -297,7 +334,7 @@ abstract readonly class Message implements MessageInterface
         $normalized = [];
         foreach ($values as $item) {
             $item = (string) $item;
-            if (!\preg_match(self::HEADER_VALUE_PATTERN, $item)) {
+            if (!preg_match(self::HEADER_VALUE_PATTERN, $item)) {
                 throw new InvalidArgumentException("Invalid header value: \"{$item}\".");
             }
             $normalized[] = $item;
@@ -313,7 +350,7 @@ abstract readonly class Message implements MessageInterface
     {
         // '1.1' is the default and overwhelmingly common case - skip the
         // regex entirely for it instead of matching on every construction.
-        if ($version === '1.1' || \preg_match(self::PROTOCOL_PATTERN, $version)) {
+        if ($version === '1.1' || preg_match(self::PROTOCOL_PATTERN, $version)) {
             return $version;
         }
 
@@ -327,7 +364,7 @@ abstract readonly class Message implements MessageInterface
      */
     protected function createDefaultBodyStream(): StreamInterface
     {
-        $resource = @\fopen('php://temp', 'r+');
+        $resource = @fopen('php://temp', 'r+');
         if ($resource === false) {
             // @codeCoverageIgnoreStart
             throw new RuntimeException('Failed to create temporary stream.');

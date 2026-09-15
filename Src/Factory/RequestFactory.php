@@ -11,6 +11,8 @@ use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
 use Temant\HttpCore\Request;
 
+use function is_string;
+
 /**
  * PSR-17 factory for outgoing {@see Request} instances.
  *
@@ -19,6 +21,8 @@ use Temant\HttpCore\Request;
  * deliberately left unset - {@see Request}'s own default is lazy, so
  * there's no reason to force a stream resource open for every request
  * when most callers never touch the body of a `GET`.
+ *
+ * @see RequestFactoryInterface The PSR-17 contract this class implements.
  */
 class RequestFactory implements RequestFactoryInterface
 {
@@ -28,11 +32,12 @@ class RequestFactory implements RequestFactoryInterface
     }
 
     /**
+     * @inheritDoc
+     * @see RequestFactoryInterface::createRequest()
      * @param string $method
      * @param UriInterface|string $uri
      * @throws InvalidArgumentException if `$uri` is neither a string nor a `UriInterface`.
      */
-    #[\Override]
     public function createRequest(string $method, $uri): RequestInterface
     {
         return new Request($method, $this->resolveUri($uri));
@@ -43,7 +48,7 @@ class RequestFactory implements RequestFactoryInterface
      */
     private function resolveUri(mixed $uri): UriInterface
     {
-        if (\is_string($uri)) {
+        if (is_string($uri)) {
             return $this->uriFactory->createUri($uri);
         }
 

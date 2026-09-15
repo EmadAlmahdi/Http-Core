@@ -9,6 +9,13 @@ use Psr\Http\Message\UriInterface;
 use RuntimeException;
 use Stringable;
 
+use function ltrim;
+use function parse_url;
+use function preg_match;
+use function preg_replace_callback;
+use function rawurlencode;
+use function strtolower;
+
 /**
  * A PSR-7 compatible, immutable URI value object.
  *
@@ -43,6 +50,8 @@ use Stringable;
  * needs it - critically, one that leaves an already-valid `%XX` triplet
  * alone rather than re-encoding its `%`, which is what PSR-7 means by
  * "MUST NOT double-encode any characters."
+ *
+ * @see UriInterface The PSR-7 contract this class implements.
  */
 final readonly class Uri implements UriInterface, Stringable
 {
@@ -144,7 +153,7 @@ final readonly class Uri implements UriInterface, Stringable
             return;
         }
 
-        $parts = \parse_url($uri);
+        $parts = parse_url($uri);
         if ($parts === false || (!isset($parts['host']) && !isset($parts['path']))) {
             throw new InvalidArgumentException("Invalid URI: {$uri}");
         }
@@ -152,22 +161,28 @@ final readonly class Uri implements UriInterface, Stringable
         $port = $parts['port'] ?? null;
         self::assertValidPort($port);
 
-        $this->scheme = isset($parts['scheme']) ? \strtolower($parts['scheme']) : '';
+        $this->scheme = isset($parts['scheme']) ? strtolower($parts['scheme']) : '';
         $this->userInfo = $this->buildUserInfo($parts['user'] ?? null, $parts['pass'] ?? null);
-        $this->host = isset($parts['host']) ? self::filterHost(\strtolower($parts['host'])) : '';
+        $this->host = isset($parts['host']) ? self::filterHost(strtolower($parts['host'])) : '';
         $this->port = $port;
         $this->path = isset($parts['path']) ? $this->filterPath($parts['path']) : '';
         $this->query = isset($parts['query']) ? $this->filterQueryOrFragment($parts['query']) : '';
         $this->fragment = isset($parts['fragment']) ? $this->filterQueryOrFragment($parts['fragment']) : '';
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getScheme()
+     */
     public function getScheme(): string
     {
         return $this->scheme;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getAuthority()
+     */
     public function getAuthority(): string
     {
         if ($this->host === '') {
@@ -185,19 +200,28 @@ final readonly class Uri implements UriInterface, Stringable
         return $authority;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getUserInfo()
+     */
     public function getUserInfo(): string
     {
         return $this->userInfo;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getHost()
+     */
     public function getHost(): string
     {
         return $this->host;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getPort()
+     */
     public function getPort(): ?int
     {
         $isStandard = isset(self::STANDARD_PORTS[$this->scheme]) && $this->port === self::STANDARD_PORTS[$this->scheme];
@@ -205,39 +229,52 @@ final readonly class Uri implements UriInterface, Stringable
         return $this->port !== null && !$isStandard ? $this->port : null;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getPath()
+     */
     public function getPath(): string
     {
         return $this->path;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getQuery()
+     */
     public function getQuery(): string
     {
         return $this->query;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::getFragment()
+     */
     public function getFragment(): string
     {
         return $this->fragment;
     }
 
     /**
+     * @inheritDoc
+     * @see UriInterface::withScheme()
      * @throws InvalidArgumentException for a scheme that isn't a valid RFC 3986 scheme token.
      */
-    #[\Override]
     public function withScheme(string $scheme): static
     {
-        $scheme = \strtolower($scheme);
-        if ($scheme !== '' && !\preg_match(self::SCHEME_PATTERN, $scheme)) {
+        $scheme = strtolower($scheme);
+        if ($scheme !== '' && !preg_match(self::SCHEME_PATTERN, $scheme)) {
             throw new InvalidArgumentException("Invalid scheme \"{$scheme}\".");
         }
 
         return $scheme === $this->scheme ? $this : clone($this, ['scheme' => $scheme]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::withUserInfo()
+     */
     public function withUserInfo(string $user, ?string $password = null): static
     {
         $encodedUser = $this->encodeUserInfoComponent($user);
@@ -249,20 +286,22 @@ final readonly class Uri implements UriInterface, Stringable
     }
 
     /**
+     * @inheritDoc
+     * @see UriInterface::withHost()
      * @throws InvalidArgumentException if `$host` contains a control character or a URI-structural character.
      */
-    #[\Override]
     public function withHost(string $host): static
     {
-        $host = self::filterHost(\strtolower($host));
+        $host = self::filterHost(strtolower($host));
 
         return $host === $this->host ? $this : clone($this, ['host' => $host]);
     }
 
     /**
+     * @inheritDoc
+     * @see UriInterface::withPort()
      * @throws InvalidArgumentException for a port outside the 1-65535 range.
      */
-    #[\Override]
     public function withPort(?int $port): static
     {
         self::assertValidPort($port);
@@ -270,7 +309,10 @@ final readonly class Uri implements UriInterface, Stringable
         return $port === $this->port ? $this : clone($this, ['port' => $port]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::withPath()
+     */
     public function withPath(string $path): static
     {
         $filtered = $this->filterPath($path);
@@ -278,23 +320,32 @@ final readonly class Uri implements UriInterface, Stringable
         return $filtered === $this->path ? $this : clone($this, ['path' => $filtered]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::withQuery()
+     */
     public function withQuery(string $query): static
     {
-        $filtered = $this->filterQueryOrFragment(\ltrim($query, '?'));
+        $filtered = $this->filterQueryOrFragment(ltrim($query, '?'));
 
         return $filtered === $this->query ? $this : clone($this, ['query' => $filtered]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::withFragment()
+     */
     public function withFragment(string $fragment): static
     {
-        $filtered = $this->filterQueryOrFragment(\ltrim($fragment, '#'));
+        $filtered = $this->filterQueryOrFragment(ltrim($fragment, '#'));
 
         return $filtered === $this->fragment ? $this : clone($this, ['fragment' => $filtered]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UriInterface::__toString()
+     */
     public function __toString(): string
     {
         $uri = $this->scheme !== '' ? "{$this->scheme}:" : '';
@@ -339,7 +390,7 @@ final readonly class Uri implements UriInterface, Stringable
      */
     private function encodeUserInfoComponent(string $value): string
     {
-        if ($value === '' || \preg_match(self::UNRESERVED_PATTERN, $value) === 1) {
+        if ($value === '' || preg_match(self::UNRESERVED_PATTERN, $value) === 1) {
             return $value;
         }
 
@@ -357,7 +408,7 @@ final readonly class Uri implements UriInterface, Stringable
      */
     private function filterPath(string $path): string
     {
-        if ($path === '' || \preg_match(self::PATH_SAFE_PATTERN, $path) === 1) {
+        if ($path === '' || preg_match(self::PATH_SAFE_PATTERN, $path) === 1) {
             return $path;
         }
 
@@ -371,7 +422,7 @@ final readonly class Uri implements UriInterface, Stringable
      */
     private function filterQueryOrFragment(string $value): string
     {
-        if ($value === '' || \preg_match(self::QUERY_FRAGMENT_SAFE_PATTERN, $value) === 1) {
+        if ($value === '' || preg_match(self::QUERY_FRAGMENT_SAFE_PATTERN, $value) === 1) {
             return $value;
         }
 
@@ -393,7 +444,7 @@ final readonly class Uri implements UriInterface, Stringable
      */
     private static function filterHost(string $host): string
     {
-        if ($host === '' || !\preg_match(self::HOST_INVALID_PATTERN, $host)) {
+        if ($host === '' || !preg_match(self::HOST_INVALID_PATTERN, $host)) {
             return $host;
         }
 
@@ -406,9 +457,9 @@ final readonly class Uri implements UriInterface, Stringable
      */
     private static function encodeExcept(string $pattern, string $value): string
     {
-        return \preg_replace_callback(
+        return preg_replace_callback(
             $pattern,
-            static fn(array $match): string => \rawurlencode($match[0]),
+            static fn(array $match): string => rawurlencode($match[0]),
             $value,
         ) ?? throw new RuntimeException('Unexpected failure while percent-encoding a URI component.');
     }

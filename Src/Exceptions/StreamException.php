@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Temant\HttpCore\Exceptions;
 
 use RuntimeException;
+use Temant\HttpCore\Stream;
 
 /**
  * Base type for every exception this library throws while operating on a
- * {@see \Temant\HttpCore\Stream}.
+ * {@see Stream}.
  *
  * Catch this when the only thing you care about is "something failed while
  * reading, writing, or seeking this stream" without needing to distinguish

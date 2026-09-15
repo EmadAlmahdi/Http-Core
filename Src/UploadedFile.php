@@ -8,16 +8,30 @@ use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use RuntimeException;
+use Temant\HttpCore\Factory\UploadedFileFactory;
+
+use function fclose;
+use function fopen;
+use function fwrite;
+use function is_file;
+use function is_string;
+use function move_uploaded_file;
+use function rename;
+use function trim;
+
+use const PHP_SAPI;
+use const UPLOAD_ERR_EXTENSION;
+use const UPLOAD_ERR_OK;
 
 /**
  * PSR-7 Uploaded File implementation.
  *
  * Wraps one entry from a file upload, whether it came from `$_FILES` (via
- * {@see \Temant\HttpCore\Factory\UploadedFileFactory}) or was built
- * directly from a stream or path. A file can only be moved once: {@see
- * moveTo()} marks it as moved, and both `moveTo()` and {@see getStream()}
- * refuse to run again afterward, mirroring how PHP's own
- * `move_uploaded_file()` behaves for a real upload.
+ * {@see UploadedFileFactory}) or was built directly from a stream or path.
+ * A file can only be moved once: {@see moveTo()} marks it as moved, and
+ * both `moveTo()` and {@see getStream()} refuse to run again afterward,
+ * mirroring how PHP's own `move_uploaded_file()` behaves for a real
+ * upload.
  *
  * When the wrapped stream is backed by a real file on disk, {@see moveTo()}
  * moves it with `move_uploaded_file()` (or `rename()` under a CLI SAPI,
@@ -30,6 +44,7 @@ use RuntimeException;
  * exposing, via whatever the destination is served as) an arbitrary file
  * it otherwise has no business touching.
  *
+ * @see UploadedFileInterface The PSR-7 contract this class implements.
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
 final class UploadedFile implements UploadedFileInterface
@@ -52,11 +67,11 @@ final class UploadedFile implements UploadedFileInterface
         private readonly ?int $size,
         private readonly int $error
     ) {
-        if ($error < \UPLOAD_ERR_OK || $error > \UPLOAD_ERR_EXTENSION) {
+        if ($error < UPLOAD_ERR_OK || $error > UPLOAD_ERR_EXTENSION) {
             throw new InvalidArgumentException('Invalid upload error code.');
         }
 
-        $this->stream = \is_string($stream) ? self::openFile($stream) : $stream;
+        $this->stream = is_string($stream) ? self::openFile($stream) : $stream;
     }
 
     /**
@@ -64,7 +79,7 @@ final class UploadedFile implements UploadedFileInterface
      */
     private static function openFile(string $path): Stream
     {
-        $resource = @\fopen($path, 'rb');
+        $resource = @fopen($path, 'rb');
         if ($resource === false) {
             throw new InvalidArgumentException("Unable to open file: {$path}.");
         }
@@ -73,16 +88,17 @@ final class UploadedFile implements UploadedFileInterface
     }
 
     /**
+     * @inheritDoc
+     * @see UploadedFileInterface::getStream()
      * @throws RuntimeException if the file has already been moved, or the upload itself failed.
      */
-    #[\Override]
     public function getStream(): StreamInterface
     {
         if ($this->moved) {
             throw new RuntimeException('Uploaded file has already been moved.');
         }
 
-        if ($this->error !== \UPLOAD_ERR_OK) {
+        if ($this->error !== UPLOAD_ERR_OK) {
             throw new RuntimeException('Cannot retrieve stream due to upload error.');
         }
 
@@ -90,28 +106,29 @@ final class UploadedFile implements UploadedFileInterface
     }
 
     /**
+     * @inheritDoc
+     * @see UploadedFileInterface::moveTo()
      * @throws InvalidArgumentException if `$targetPath` is empty.
      * @throws RuntimeException if the file has already been moved, the upload failed, or the move itself fails.
      */
-    #[\Override]
     public function moveTo(string $targetPath): void
     {
         if ($this->moved) {
             throw new RuntimeException('Uploaded file has already been moved.');
         }
 
-        if (\trim($targetPath) === '') {
+        if (trim($targetPath) === '') {
             throw new InvalidArgumentException('Invalid target path.');
         }
 
-        if ($this->error !== \UPLOAD_ERR_OK) {
+        if ($this->error !== UPLOAD_ERR_OK) {
             throw new RuntimeException('Cannot move file due to upload error.');
         }
 
         $stream = $this->getStream();
         $sourcePath = $stream->getMetadata('uri');
 
-        if (\is_string($sourcePath) && $sourcePath !== '' && \is_file($sourcePath)) {
+        if (is_string($sourcePath) && $sourcePath !== '' && is_file($sourcePath)) {
             $this->moveRealFile($sourcePath, $targetPath);
         } else {
             $this->copyStreamTo($stream, $targetPath);
@@ -130,9 +147,9 @@ final class UploadedFile implements UploadedFileInterface
      */
     private function moveRealFile(string $sourcePath, string $targetPath): void
     {
-        $moved = \PHP_SAPI === 'cli'
-            ? @\rename($sourcePath, $targetPath)
-            : @\move_uploaded_file($sourcePath, $targetPath);
+        $moved = PHP_SAPI === 'cli'
+            ? @rename($sourcePath, $targetPath)
+            : @move_uploaded_file($sourcePath, $targetPath);
 
         if ($moved === false) {
             throw new RuntimeException("Unable to move uploaded file to: {$targetPath}.");
@@ -153,36 +170,48 @@ final class UploadedFile implements UploadedFileInterface
             $stream->rewind();
         }
 
-        $dest = @\fopen($targetPath, 'wb');
+        $dest = @fopen($targetPath, 'wb');
         if ($dest === false) {
             throw new RuntimeException("Unable to open destination: {$targetPath}.");
         }
 
         while (!$stream->eof()) {
-            \fwrite($dest, $stream->read(8192));
+            fwrite($dest, $stream->read(8192));
         }
-        \fclose($dest);
+        fclose($dest);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UploadedFileInterface::getSize()
+     */
     public function getSize(): ?int
     {
         return $this->size;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UploadedFileInterface::getError()
+     */
     public function getError(): int
     {
         return $this->error;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UploadedFileInterface::getClientFilename()
+     */
     public function getClientFilename(): ?string
     {
         return $this->clientFilename;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see UploadedFileInterface::getClientMediaType()
+     */
     public function getClientMediaType(): ?string
     {
         return $this->clientMediaType;

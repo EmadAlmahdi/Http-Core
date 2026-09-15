@@ -10,6 +10,10 @@ use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriInterface;
 
+use function array_key_exists;
+use function is_array;
+use function is_object;
+
 /**
  * PSR-7 HTTP Server Request implementation.
  *
@@ -18,14 +22,15 @@ use Psr\Http\Message\UriInterface;
  * parameters, cookies, query parameters, uploaded files, a parsed body, and
  * an arbitrary attribute bag middleware can use to pass data down the
  * pipeline (routing results, an authenticated user, and so on). Build one
- * from PHP's superglobals with {@see \Temant\HttpCore\Factory\ServerRequestFactory::fromGlobals()}.
+ * from PHP's superglobals with {@see ServerRequestFactory::fromGlobals()}.
  *
+ * @see ServerRequestInterface The PSR-7 contract this class implements.
  * @phpstan-type UploadedFilesTree array<string|int, UploadedFileInterface|array<string|int, UploadedFileInterface|mixed>>
  */
 final readonly class ServerRequest extends Request implements ServerRequestInterface
 {
     /** @var array<string, mixed> */
-    private readonly array $attributes;
+    private array $attributes;
 
     /**
      * @param string|HttpMethod $method
@@ -55,64 +60,71 @@ final readonly class ServerRequest extends Request implements ServerRequestInter
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::getServerParams()
      * @return array<mixed>
      */
-    #[\Override]
     public function getServerParams(): array
     {
         return $this->serverParams;
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::getCookieParams()
      * @return array<mixed>
      */
-    #[\Override]
     public function getCookieParams(): array
     {
         return $this->cookieParams;
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::withCookieParams()
      * @param array<string, string> $cookies
      */
-    #[\Override]
     public function withCookieParams(array $cookies): static
     {
         return clone($this, ['cookieParams' => $cookies]);
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::getQueryParams()
      * @return array<mixed>
      */
-    #[\Override]
     public function getQueryParams(): array
     {
         return $this->queryParams;
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::withQueryParams()
      * @param array<string, mixed> $query
      */
-    #[\Override]
     public function withQueryParams(array $query): static
     {
         return clone($this, ['queryParams' => $query]);
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::getUploadedFiles()
      * @return UploadedFilesTree
      */
-    #[\Override]
     public function getUploadedFiles(): array
     {
         return $this->uploadedFiles;
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::withUploadedFiles()
      * @param UploadedFilesTree $uploadedFiles
      * @throws InvalidArgumentException if any leaf of `$uploadedFiles` isn't an {@see UploadedFileInterface}.
      */
-    #[\Override]
     public function withUploadedFiles(array $uploadedFiles): static
     {
         self::assertValidUploadedFilesTree($uploadedFiles);
@@ -121,19 +133,21 @@ final readonly class ServerRequest extends Request implements ServerRequestInter
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::getParsedBody()
      * @return array<mixed>|object|null
      */
-    #[\Override]
     public function getParsedBody(): array|object|null
     {
         return $this->parsedBody;
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::withParsedBody()
      * @param array<string, mixed>|object|null $data
      * @throws InvalidArgumentException if `$data` isn't an array, object, or null.
      */
-    #[\Override]
     public function withParsedBody($data): static
     {
         if ($data === null) {
@@ -141,7 +155,7 @@ final readonly class ServerRequest extends Request implements ServerRequestInter
         }
 
         /** @phpstan-ignore function.alreadyNarrowedType, booleanAnd.alwaysFalse */
-        if (!\is_array($data) && !\is_object($data)) {
+        if (!is_array($data) && !is_object($data)) {
             throw new InvalidArgumentException('Parsed body must be an array, object, or null.');
         }
 
@@ -149,31 +163,41 @@ final readonly class ServerRequest extends Request implements ServerRequestInter
     }
 
     /**
+     * @inheritDoc
+     * @see ServerRequestInterface::getAttributes()
      * @return array<string, mixed>
      */
-    #[\Override]
     public function getAttributes(): array
     {
         return $this->attributes;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see ServerRequestInterface::getAttribute()
+     */
     public function getAttribute(string $name, mixed $default = null): mixed
     {
         /** @phpstan-ignore nullCoalesce.offset (phpstan doesn't yet track PHP 8.5 clone-with reinitialization of readonly properties) */
         return $this->attributes[$name] ?? $default;
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see ServerRequestInterface::withAttribute()
+     */
     public function withAttribute(string $name, mixed $value): static
     {
         return clone($this, ['attributes' => [...$this->attributes, $name => $value]]);
     }
 
-    #[\Override]
+    /**
+     * @inheritDoc
+     * @see ServerRequestInterface::withoutAttribute()
+     */
     public function withoutAttribute(string $name): static
     {
-        if (!\array_key_exists($name, $this->attributes)) {
+        if (!array_key_exists($name, $this->attributes)) {
             return $this;
         }
 
@@ -200,7 +224,7 @@ final readonly class ServerRequest extends Request implements ServerRequestInter
                 continue;
             }
 
-            if (\is_array($leaf)) {
+            if (is_array($leaf)) {
                 self::assertValidUploadedFilesTree($leaf);
                 continue;
             }
