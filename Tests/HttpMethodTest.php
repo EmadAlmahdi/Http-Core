@@ -6,8 +6,8 @@ namespace Temant\HttpCore\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\UriInterface;
-use Temant\HttpCore\HttpMethod;
-use Temant\HttpCore\Request;
+use Temant\HttpCore\Enum\HttpMethod;
+use Temant\HttpCore\Message\Request;
 
 final class HttpMethodTest extends TestCase
 {

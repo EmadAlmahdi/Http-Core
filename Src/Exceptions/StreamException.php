@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Temant\HttpCore\Exceptions;
 
 use RuntimeException;
-use Temant\HttpCore\Stream;
+use Temant\HttpCore\Message\Stream;
 
 /**
  * Base type for every exception this library throws while operating on a

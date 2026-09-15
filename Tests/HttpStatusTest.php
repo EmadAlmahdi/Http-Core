@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Temant\HttpCore\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Temant\HttpCore\HttpStatus;
-use Temant\HttpCore\Response;
+use Temant\HttpCore\Enum\HttpStatus;
+use Temant\HttpCore\Message\Response;
 
 final class HttpStatusTest extends TestCase
 {

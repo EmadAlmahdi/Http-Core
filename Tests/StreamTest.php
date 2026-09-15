@@ -9,7 +9,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 use Temant\HttpCore\Exceptions\StreamDetachedException;
 use Temant\HttpCore\Exceptions\StreamException;
-use Temant\HttpCore\Stream;
+use Temant\HttpCore\Message\Stream;
 
 class StreamTest extends TestCase
 {

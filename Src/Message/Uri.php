@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Temant\HttpCore;
+namespace Temant\HttpCore\Message;
 
 use InvalidArgumentException;
 use Psr\Http\Message\UriInterface;

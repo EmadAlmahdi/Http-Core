@@ -9,7 +9,7 @@ use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
 use Temant\HttpCore\Factory\StreamFactory;
 use Temant\HttpCore\Factory\UploadedFileFactory;
-use Temant\HttpCore\Stream;
+use Temant\HttpCore\Message\Stream;
 
 class UploadedFileFactoryTest extends UploadedFileFactoryTestCase
 {

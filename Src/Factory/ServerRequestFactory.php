@@ -13,8 +13,8 @@ use Psr\Http\Message\UploadedFileFactoryInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
-use Temant\HttpCore\ServerRequest;
-use Temant\HttpCore\UploadedFile;
+use Temant\HttpCore\Message\ServerRequest;
+use Temant\HttpCore\Message\UploadedFile;
 
 use function array_map;
 use function filesize;

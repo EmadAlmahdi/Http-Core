@@ -9,7 +9,7 @@ use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
-use Temant\HttpCore\Request;
+use Temant\HttpCore\Message\Request;
 
 use function is_string;
 

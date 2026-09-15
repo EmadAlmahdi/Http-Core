@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Temant\HttpCore;
+namespace Temant\HttpCore\Enum;
+
+use Temant\HttpCore\Message\Response;
 
 /**
  * The standard HTTP status codes and their default reason phrases, per

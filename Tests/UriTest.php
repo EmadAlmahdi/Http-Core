@@ -7,7 +7,7 @@ namespace Temant\HttpCore\Tests;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
-use Temant\HttpCore\Uri;
+use Temant\HttpCore\Message\Uri;
 
 final class UriTest extends TestCase
 {

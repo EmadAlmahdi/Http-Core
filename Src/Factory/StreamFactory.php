@@ -7,7 +7,7 @@ namespace Temant\HttpCore\Factory;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
-use Temant\HttpCore\Stream;
+use Temant\HttpCore\Message\Stream;
 
 use function fopen;
 use function fwrite;

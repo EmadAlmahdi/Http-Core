@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Temant\HttpCore;
+namespace Temant\HttpCore\Enum;
+
+use Temant\HttpCore\Message\Request;
 
 /**
  * The standard HTTP request methods defined by RFC 9110 §9.

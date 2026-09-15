@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Temant\HttpCore;
+namespace Temant\HttpCore\Message;
 
 use InvalidArgumentException;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UriInterface;
+use Temant\HttpCore\Enum\HttpMethod;
 
 use function preg_match;
 use function strtolower;

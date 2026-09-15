@@ -6,8 +6,8 @@ namespace Temant\HttpCore\Tests;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use Temant\HttpCore\Response;
-use Temant\HttpCore\Stream;
+use Temant\HttpCore\Message\Response;
+use Temant\HttpCore\Message\Stream;
 use Psr\Http\Message\StreamInterface;
 
 final class ResponseTest extends TestCase

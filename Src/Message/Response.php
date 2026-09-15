@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Temant\HttpCore;
+namespace Temant\HttpCore\Message;
 
 use InvalidArgumentException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
+use Temant\HttpCore\Enum\HttpStatus;
 
 /**
  * PSR-7 HTTP Response implementation.

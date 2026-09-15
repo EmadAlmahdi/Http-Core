@@ -6,7 +6,7 @@ namespace Temant\HttpCore\Factory;
 
 use Psr\Http\Message\UriFactoryInterface;
 use Psr\Http\Message\UriInterface;
-use Temant\HttpCore\Uri;
+use Temant\HttpCore\Message\Uri;
 
 use function filter_var;
 use function is_int;

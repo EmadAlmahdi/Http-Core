@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Temant\HttpCore\Exceptions;
 
-use Temant\HttpCore\Stream;
+use Temant\HttpCore\Message\Stream;
 use Throwable;
 
 /**

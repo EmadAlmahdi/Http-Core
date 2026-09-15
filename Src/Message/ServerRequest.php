@@ -2,13 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Temant\HttpCore;
+namespace Temant\HttpCore\Message;
 
 use InvalidArgumentException;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriInterface;
+use Temant\HttpCore\Enum\HttpMethod;
+use Temant\HttpCore\Factory\ServerRequestFactory;
 
 use function array_key_exists;
 use function is_array;

@@ -6,7 +6,7 @@ namespace Temant\HttpCore\Factory;
 
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
-use Temant\HttpCore\Response;
+use Temant\HttpCore\Message\Response;
 
 /**
  * PSR-17 factory for {@see Response} instances.

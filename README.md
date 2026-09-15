@@ -84,10 +84,10 @@ ints as PSR-7 requires - but they read better and give you IDE autocomplete
 plus a couple of useful classification helpers:
 
 ```php
-use Temant\HttpCore\HttpMethod;
-use Temant\HttpCore\HttpStatus;
-use Temant\HttpCore\Request;
-use Temant\HttpCore\Response;
+use Temant\HttpCore\Enum\HttpMethod;
+use Temant\HttpCore\Enum\HttpStatus;
+use Temant\HttpCore\Message\Request;
+use Temant\HttpCore\Message\Response;
 
 $request = new Request(HttpMethod::Post, $uri);
 
@@ -261,12 +261,6 @@ Run static analysis (PHPStan, `level: max`):
 composer analyse
 ```
 
-Run the performance benchmark:
-
-```bash
-composer bench
-```
-
 This library is compatible with the official `http-interop/http-factory-tests`.
 
 ---
@@ -274,13 +268,19 @@ This library is compatible with the official `http-interop/http-factory-tests`.
 ## Project Structure
 
 ```
-Src/                        Library source (PSR-4: Temant\HttpCore\)
-Tests/                      PHPUnit test suite (PSR-4: Temant\HttpCore\Tests\)
-benchmarks/                 Performance benchmark (PSR-4: Temant\HttpCore\Benchmarks\)
-  Benchmark.php             Reusable, dependency-free microbenchmark runner
-  BenchmarkResult.php       Result value object (ns/op, ops/sec, bytes/op)
-  adapters.php              Guzzle/Nyholm/Laminas/Slim comparison adapters
-  run.php                   Entry point (composer bench / php benchmarks/run.php)
+Src/
+  Message/                  PSR-7 message value objects (Temant\HttpCore\Message\)
+    Message.php               Abstract base shared by Request and Response
+    Request.php
+    Response.php
+    ServerRequest.php
+    Stream.php
+    Uri.php
+    UploadedFile.php
+  Factory/                  PSR-17 factories (Temant\HttpCore\Factory\)
+  Enum/                     HttpMethod/HttpStatus convenience enums (Temant\HttpCore\Enum\)
+  Exceptions/                Typed Stream exceptions (Temant\HttpCore\Exceptions\)
+Tests/                      PHPUnit test suite (PSR-4: Temant\HttpCore\Tests\), mirrors Src/
 composer.json
 ```
 

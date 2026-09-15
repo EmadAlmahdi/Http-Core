@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Temant\HttpCore\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Temant\HttpCore\UploadedFile;
-use Temant\HttpCore\Stream;
+use Temant\HttpCore\Message\UploadedFile;
+use Temant\HttpCore\Message\Stream;
 use RuntimeException;
 use InvalidArgumentException;
 

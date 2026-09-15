@@ -8,7 +8,7 @@ use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Message\UploadedFileFactoryInterface;
 use Psr\Http\Message\UploadedFileInterface;
-use Temant\HttpCore\UploadedFile;
+use Temant\HttpCore\Message\UploadedFile;
 
 use function is_string;
 

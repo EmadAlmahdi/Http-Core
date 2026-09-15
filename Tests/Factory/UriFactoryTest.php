@@ -6,7 +6,7 @@ namespace Temant\HttpCore\Tests\Factory;
 
 use Interop\Http\Factory\UriFactoryTestCase;
 use Temant\HttpCore\Factory\UriFactory;
-use Temant\HttpCore\Uri;
+use Temant\HttpCore\Message\Uri;
 
 class UriFactoryTest extends UriFactoryTestCase
 {
