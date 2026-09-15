@@ -15,35 +15,44 @@ use Temant\HttpCore\Request;
  * PSR-17 factory for outgoing {@see Request} instances.
  *
  * Accepts either a URI string or an existing `UriInterface`; a string is
- * turned into one via the injected {@see UriFactoryInterface}. The body
- * is deliberately left unset - {@see Request}'s own default is lazy, so
- * there's no reason for the factory to force a stream resource open for
- * every request when most callers never touch the body of a `GET`.
+ * turned into one via the injected {@see UriFactoryInterface}. The body is
+ * deliberately left unset - {@see Request}'s own default is lazy, so
+ * there's no reason to force a stream resource open for every request
+ * when most callers never touch the body of a `GET`.
  */
 class RequestFactory implements RequestFactoryInterface
 {
     public function __construct(
-        private UriFactoryInterface $uriFactory = new UriFactory()
+        private readonly UriFactoryInterface $uriFactory = new UriFactory()
     ) {
     }
 
     /**
-     * {@inheritdoc}
+     * @param string $method
+     * @param UriInterface|string $uri
+     * @throws InvalidArgumentException if `$uri` is neither a string nor a `UriInterface`.
      */
     #[\Override]
     public function createRequest(string $method, $uri): RequestInterface
     {
-        if (is_string($uri)) {
-            $uri = $this->uriFactory->createUri($uri);
+        return new Request($method, $this->resolveUri($uri));
+    }
+
+    /**
+     * @throws InvalidArgumentException if `$uri` is neither a string nor a `UriInterface`.
+     */
+    private function resolveUri(mixed $uri): UriInterface
+    {
+        if (\is_string($uri)) {
+            return $this->uriFactory->createUri($uri);
         }
 
-        /** @phpstan-ignore instanceof.alwaysTrue */
-        if (!$uri instanceof UriInterface) {
-            throw new InvalidArgumentException(
-                'Parameter 2 of RequestFactory::createRequest() must be a string or a compatible UriInterface.'
-            );
+        if ($uri instanceof UriInterface) {
+            return $uri;
         }
 
-        return new Request($method, $uri);
+        throw new InvalidArgumentException(
+            'Parameter 2 of RequestFactory::createRequest() must be a string or a compatible UriInterface.'
+        );
     }
 }

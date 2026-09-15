@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Temant\HttpCore;
 
+use InvalidArgumentException;
 use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
-use InvalidArgumentException;
 
 /**
  * Shared plumbing for {@see Request} and {@see Response}: protocol version,
@@ -16,25 +16,34 @@ use InvalidArgumentException;
  * Header lookups (`hasHeader()`, `getHeader()`, ...) are case-insensitive,
  * as PSR-7 requires, via a small lowercase-name index kept alongside the
  * real storage. `getHeaders()` returns the headers keyed by the *exact*
- * casing they were last set with (also a PSR-7 requirement, easy to miss
- * since it's easy to accidentally normalize away) - `withHeader('Content-Type', ...)`
+ * casing they were last set with - also a PSR-7 requirement, easy to miss
+ * since it's easy to accidentally normalize away: `withHeader('Content-Type', ...)`
  * means `getHeaders()` comes back with a `Content-Type` key, not `content-type`.
+ *
+ * Both the header name and value are validated on every write. The name
+ * must be a valid RFC 7230 `token`; the value must not contain a bare CR
+ * or LF. Together these are what stop a caller-controlled value from
+ * smuggling an extra header, or an entirely separate request, into the
+ * message - the classic "header/response splitting" injection.
  *
  * Everything here is `readonly`; every `with*()` method returns a fresh
  * instance rather than mutating the one it was called on.
  *
  * The body stream is the one exception to "everything is set up in the
- * constructor": if you don't supply one, no stream resource is opened
- * until something actually calls {@see getBody()}. Constructing a request
- * or response is one of the hottest paths in this library, and most of
- * the time nobody ever reads the (empty) body of a `GET` request - paying
- * for an `fopen()` call that's thrown away unread is pure waste.
+ * constructor": if none is supplied, no stream resource is opened until
+ * something actually calls {@see getBody()}. Constructing a request or
+ * response is one of the hottest paths in this library, and most of the
+ * time nobody ever reads the (empty) body of a `GET` request - paying for
+ * an `fopen()` call that's thrown away unread is pure waste.
  *
  * @link https://www.php-fig.org/psr/psr-7/ PSR-7 Specification
  */
-abstract class Message implements MessageInterface
+abstract readonly class Message implements MessageInterface
 {
     private const string PROTOCOL_PATTERN = '/^(1\.[01]|2(?:\.0)?)$/';
+
+    /** RFC 7230 `token` grammar: one or more of the characters below. */
+    private const string HEADER_NAME_PATTERN = '/^[!#$%&\'*+.^_`|~0-9a-zA-Z-]+$/';
 
     private const string HEADER_VALUE_PATTERN = "/[\r\n]/";
 
@@ -61,23 +70,21 @@ abstract class Message implements MessageInterface
      */
     protected readonly StreamInterface $body;
 
-    /**
-     * HTTP protocol version (e.g., '1.0', '1.1', '2')
-     */
+    /** HTTP protocol version, e.g. `'1.0'`, `'1.1'`, `'2'`. */
     protected readonly string $protocolVersion;
 
     /**
-     * @param array<string, string[]> $headers
-     * @throws InvalidArgumentException For invalid protocol versions
+     * @param array<string, string|string[]> $headers
+     * @throws InvalidArgumentException for an invalid header name/value, or protocol version.
      */
     protected function __construct(array $headers, ?StreamInterface $body, string $protocolVersion)
     {
         $normalizedHeaders = [];
         $headerNames = [];
         foreach ($headers as $name => $value) {
-            $name = (string) $name;
-            $normalizedHeaders[$name] = $value;
-            $headerNames[strtolower($name)] = $name;
+            $name = $this->filterHeaderName((string) $name);
+            $normalizedHeaders[$name] = $this->filterHeaderValue($value);
+            $headerNames[\strtolower($name)] = $name;
         }
 
         $this->headers = $normalizedHeaders;
@@ -113,13 +120,14 @@ abstract class Message implements MessageInterface
     #[\Override]
     public function hasHeader(string $name): bool
     {
-        return isset($this->headerNames[strtolower($name)]);
+        return isset($this->headerNames[\strtolower($name)]);
     }
 
     #[\Override]
     public function getHeader(string $name): array
     {
-        $exact = $this->headerNames[strtolower($name)] ?? null;
+        $exact = $this->headerNames[\strtolower($name)] ?? null;
+
         return $exact !== null ? $this->headers[$exact] : [];
     }
 
@@ -127,17 +135,23 @@ abstract class Message implements MessageInterface
     public function getHeaderLine(string $name): string
     {
         $header = $this->getHeader($name);
-        return $header ? implode(', ', $header) : '';
+
+        return $header === [] ? '' : \implode(', ', $header);
     }
 
+    /**
+     * @param string|string[] $value
+     * @throws InvalidArgumentException for an invalid header name or value.
+     */
     #[\Override]
     public function withHeader(string $name, $value): static
     {
-        $lower = strtolower($name);
+        $name = $this->filterHeaderName($name);
         $value = $this->filterHeaderValue($value);
+        $lower = \strtolower($name);
         $existing = $this->headerNames[$lower] ?? null;
 
-        // Prevent unnecessary cloning
+        // Avoid an unnecessary clone when setting a header to what it already is.
         if ($existing === $name && ($this->headers[$existing] ?? null) === $value) {
             return $this;
         }
@@ -154,11 +168,16 @@ abstract class Message implements MessageInterface
         ]);
     }
 
+    /**
+     * @param string|string[] $value
+     * @throws InvalidArgumentException for an invalid header name or value.
+     */
     #[\Override]
     public function withAddedHeader(string $name, $value): static
     {
-        $lower = strtolower($name);
+        $name = $this->filterHeaderName($name);
         $value = $this->filterHeaderValue($value);
+        $lower = \strtolower($name);
         $existing = $this->headerNames[$lower] ?? null;
 
         if ($existing !== null) {
@@ -177,7 +196,7 @@ abstract class Message implements MessageInterface
     #[\Override]
     public function withoutHeader(string $name): static
     {
-        $lower = strtolower($name);
+        $lower = \strtolower($name);
         $existing = $this->headerNames[$lower] ?? null;
 
         if ($existing === null) {
@@ -215,31 +234,42 @@ abstract class Message implements MessageInterface
     }
 
     /**
-     * Filter and validate header values.
+     * Validates a header name against RFC 7230's `token` grammar - the set
+     * of characters a header field-name is allowed to contain.
      *
-     * Normalizes to a list of strings in a single pass (rather than
-     * validating and then mapping separately) and rejects anything
-     * containing a CR or LF, which would otherwise allow header injection.
+     * @throws InvalidArgumentException if `$name` is empty or contains a disallowed character.
+     */
+    protected function filterHeaderName(string $name): string
+    {
+        if ($name === '' || !\preg_match(self::HEADER_NAME_PATTERN, $name)) {
+            throw new InvalidArgumentException("Invalid header name: \"{$name}\".");
+        }
+
+        return $name;
+    }
+
+    /**
+     * Normalizes a header value (or list of values) to a list of strings in
+     * a single pass, rejecting anything containing a CR or LF - which would
+     * otherwise allow header injection.
      *
      * @param string|string[] $value
      * @return string[]
-     * @throws InvalidArgumentException For invalid header values
+     * @throws InvalidArgumentException for an empty or invalid header value.
      */
     protected function filterHeaderValue(array|string $value): array
     {
         $values = \is_array($value) ? $value : [$value];
 
-        if (empty($values) || $value === '') {
-            throw new InvalidArgumentException('Header value cannot be empty');
+        if ($values === [] || $value === '') {
+            throw new InvalidArgumentException('Header value cannot be empty.');
         }
 
         $normalized = [];
         foreach ($values as $item) {
             $item = (string) $item;
-            if (preg_match(self::HEADER_VALUE_PATTERN, $item)) {
-                throw new InvalidArgumentException(
-                    'Header values cannot contain CR or LF characters'
-                );
+            if (\preg_match(self::HEADER_VALUE_PATTERN, $item)) {
+                throw new InvalidArgumentException('Header values cannot contain CR or LF characters.');
             }
             $normalized[] = $item;
         }
@@ -248,39 +278,33 @@ abstract class Message implements MessageInterface
     }
 
     /**
-     * Validate protocol version
-     *
-     * @param string $version
-     * @return string
-     * @throws InvalidArgumentException For invalid protocol versions
+     * @throws InvalidArgumentException for an unsupported protocol version.
      */
     protected function filterProtocolVersion(string $version): string
     {
         // '1.1' is the default and overwhelmingly common case - skip the
         // regex entirely for it instead of matching on every construction.
-        if ($version === '1.1' || preg_match(self::PROTOCOL_PATTERN, $version)) {
+        if ($version === '1.1' || \preg_match(self::PROTOCOL_PATTERN, $version)) {
             return $version;
         }
 
         throw new InvalidArgumentException(
-            'Unsupported HTTP protocol version. Must be one of: 1.0, 1.1, 2, 2.0'
+            "Unsupported HTTP protocol version \"{$version}\". Must be one of: 1.0, 1.1, 2, 2.0."
         );
     }
 
     /**
-     * Create the default body stream.
-     *
-     * @return StreamInterface
-     * @throws RuntimeException if stream creation fails
+     * @throws RuntimeException if the temporary stream can't be opened.
      */
     protected function createDefaultBodyStream(): StreamInterface
     {
-        $resource = @fopen('php://temp', 'r+');
+        $resource = @\fopen('php://temp', 'r+');
         if ($resource === false) {
             // @codeCoverageIgnoreStart
-            throw new RuntimeException('Failed to create temporary stream');
+            throw new RuntimeException('Failed to create temporary stream.');
             // @codeCoverageIgnoreEnd
         }
+
         return new Stream($resource);
     }
 }

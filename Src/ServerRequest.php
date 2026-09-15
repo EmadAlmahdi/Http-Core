@@ -22,7 +22,7 @@ use Psr\Http\Message\UriInterface;
  *
  * @phpstan-type UploadedFilesTree array<string|int, UploadedFileInterface|array<string|int, UploadedFileInterface|mixed>>
  */
-final class ServerRequest extends Request implements ServerRequestInterface
+final readonly class ServerRequest extends Request implements ServerRequestInterface
 {
     /** @var array<string, mixed> */
     private readonly array $attributes;
@@ -30,6 +30,7 @@ final class ServerRequest extends Request implements ServerRequestInterface
     /**
      * @param string|HttpMethod $method
      * @param array<mixed> $serverParams
+     * @param array<string, string|string[]> $headers
      * @param array<mixed> $cookieParams
      * @param array<mixed> $queryParams
      * @param UploadedFilesTree $uploadedFiles
@@ -54,8 +55,6 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @return array<mixed>
      */
     #[\Override]
@@ -65,8 +64,6 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @return array<mixed>
      */
     #[\Override]
@@ -76,8 +73,6 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @param array<string, string> $cookies
      */
     #[\Override]
@@ -87,8 +82,6 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @return array<mixed>
      */
     #[\Override]
@@ -98,8 +91,6 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @param array<string, mixed> $query
      */
     #[\Override]
@@ -109,8 +100,6 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @return UploadedFilesTree
      */
     #[\Override]
@@ -120,10 +109,8 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @param UploadedFilesTree $uploadedFiles
-     * @throws InvalidArgumentException if any leaf of $uploadedFiles isn't an {@see UploadedFileInterface}
+     * @throws InvalidArgumentException if any leaf of `$uploadedFiles` isn't an {@see UploadedFileInterface}.
      */
     #[\Override]
     public function withUploadedFiles(array $uploadedFiles): static
@@ -134,36 +121,6 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * PSR-7 describes {@see getUploadedFiles()} as returning "an array
-     * tree" whose leaves are {@see UploadedFileInterface} instances -
-     * nested arrays are allowed (mirroring how a multi-file `<input
-     * name="photos[]">` shows up in `$_FILES`), so this walks the whole
-     * tree rather than just checking the top level.
-     *
-     * @param array<mixed> $tree
-     * @throws InvalidArgumentException if any leaf isn't an {@see UploadedFileInterface}
-     */
-    private static function assertValidUploadedFilesTree(array $tree): void
-    {
-        foreach ($tree as $leaf) {
-            if ($leaf instanceof UploadedFileInterface) {
-                continue;
-            }
-
-            if (\is_array($leaf)) {
-                self::assertValidUploadedFilesTree($leaf);
-                continue;
-            }
-
-            throw new InvalidArgumentException(
-                'Invalid uploaded files structure: every leaf must be an UploadedFileInterface instance'
-            );
-        }
-    }
-
-    /**
-     * @inheritDoc
-     *
      * @return array<mixed>|object|null
      */
     #[\Override]
@@ -173,11 +130,8 @@ final class ServerRequest extends Request implements ServerRequestInterface
     }
 
     /**
-     * @inheritDoc
-     *
      * @param array<string, mixed>|object|null $data
-     *
-     * @throws InvalidArgumentException if $data is not an array, object
+     * @throws InvalidArgumentException if `$data` isn't an array, object, or null.
      */
     #[\Override]
     public function withParsedBody($data): static
@@ -188,15 +142,13 @@ final class ServerRequest extends Request implements ServerRequestInterface
 
         /** @phpstan-ignore function.alreadyNarrowedType, booleanAnd.alwaysFalse */
         if (!\is_array($data) && !\is_object($data)) {
-            throw new InvalidArgumentException('Parsed body must be array, object, or null');
+            throw new InvalidArgumentException('Parsed body must be an array, object, or null.');
         }
 
         return clone($this, ['parsedBody' => $data]);
     }
 
     /**
-     * @inheritDoc
-     *
      * @return array<string, mixed>
      */
     #[\Override]
@@ -227,6 +179,35 @@ final class ServerRequest extends Request implements ServerRequestInterface
 
         $attributes = $this->attributes;
         unset($attributes[$name]);
+
         return clone($this, ['attributes' => $attributes]);
+    }
+
+    /**
+     * PSR-7 describes {@see getUploadedFiles()} as returning "an array
+     * tree" whose leaves are {@see UploadedFileInterface} instances -
+     * nested arrays are allowed (mirroring how a multi-file `<input
+     * name="photos[]">` shows up in `$_FILES`), so this walks the whole
+     * tree rather than just checking the top level.
+     *
+     * @param array<mixed> $tree
+     * @throws InvalidArgumentException if any leaf isn't an {@see UploadedFileInterface}.
+     */
+    private static function assertValidUploadedFilesTree(array $tree): void
+    {
+        foreach ($tree as $leaf) {
+            if ($leaf instanceof UploadedFileInterface) {
+                continue;
+            }
+
+            if (\is_array($leaf)) {
+                self::assertValidUploadedFilesTree($leaf);
+                continue;
+            }
+
+            throw new InvalidArgumentException(
+                'Invalid uploaded files structure: every leaf must be an UploadedFileInterface instance.'
+            );
+        }
     }
 }

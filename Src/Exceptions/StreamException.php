@@ -5,20 +5,17 @@ declare(strict_types=1);
 namespace Temant\HttpCore\Exceptions;
 
 use RuntimeException;
-use Throwable;
 
 /**
- * Something went wrong operating on a {@see \Temant\HttpCore\Stream}.
+ * Base type for every exception this library throws while operating on a
+ * {@see \Temant\HttpCore\Stream}.
  *
- * Catch this (rather than the more specific subclasses below) if you just
- * want "did something break while I was reading/writing this stream?"
- * without caring exactly which precondition failed - it's the parent of
- * every stream-related exception this library throws.
+ * Catch this when the only thing you care about is "something failed while
+ * reading, writing, or seeking this stream" without needing to distinguish
+ * *why* - each of the more specific precondition failures below
+ * ({@see StreamDetachedException}, {@see StreamNotReadableException}, etc.)
+ * extends it, so a single `catch (StreamException)` covers all of them.
  */
 class StreamException extends RuntimeException
 {
-    public function __construct(string $message = "Stream exception occurred", int $code = 0, ?Throwable $previous = null)
-    {
-        parent::__construct($message, $code, $previous);
-    }
 }

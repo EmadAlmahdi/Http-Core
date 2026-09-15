@@ -13,9 +13,6 @@ use Temant\HttpCore\Uri;
  */
 class UriFactory implements UriFactoryInterface
 {
-    /**
-     * {@inheritdoc}
-     */
     #[\Override]
     public function createUri(string $uri = ''): UriInterface
     {
@@ -23,96 +20,99 @@ class UriFactory implements UriFactoryInterface
     }
 
     /**
-     * Reconstructs the URI the client actually requested, from `$_SERVER`.
+     * Reconstructs the URI a client actually requested, from `$_SERVER`.
      *
      * There's no single `$_SERVER` key with "the URL" in it - it has to be
-     * assembled from scheme (`HTTPS`, falling back to the `X-Forwarded-Proto`
-     * header for anything behind a reverse proxy), host (`HTTP_HOST`,
-     * falling back to `SERVER_NAME`), port, and path+query
+     * assembled from scheme (`HTTPS`, falling back to `REQUEST_SCHEME` and
+     * then `X-Forwarded-Proto` for anything behind a reverse proxy), host
+     * (`HTTP_HOST`, falling back to `SERVER_NAME`), port, and path+query
      * (`REQUEST_URI`). This does that assembly once so the rest of the
      * library never has to think about `$_SERVER`'s quirks directly.
      *
-     * @param mixed[] $server The server array (typically $_SERVER)
-     * @return UriInterface
+     * @param mixed[] $server Typically `$_SERVER`.
      */
     public static function createUriFromGlobals(array $server): UriInterface
     {
-        $scheme = match (true) {
-            isset($server['HTTPS']) && $server['HTTPS'] !== 'off' => 'https',
-            isset($server['REQUEST_SCHEME']) && is_string($server['REQUEST_SCHEME']) => strtolower($server['REQUEST_SCHEME']),
-            isset($server['HTTP_X_FORWARDED_PROTO']) && is_string($server['HTTP_X_FORWARDED_PROTO']) => strtolower($server['HTTP_X_FORWARDED_PROTO']),
-            default => 'http',
-        };
+        $scheme = self::resolveScheme($server);
+        [$host, $port] = self::resolveHostAndPort($server);
+        $path = self::resolveString($server, 'REQUEST_URI');
+        $path = $path !== null ? (\strtok($path, '?') ?: '/') : '/';
+        $query = self::resolveString($server, 'QUERY_STRING') ?? '';
+        $user = self::resolveString($server, 'PHP_AUTH_USER') ?? '';
+        $pass = self::resolveString($server, 'PHP_AUTH_PW') ?? '';
 
-        $host = 'localhost';
-        if (isset($server['HTTP_HOST']) && is_string($server['HTTP_HOST'])) {
-            $host = $server['HTTP_HOST'];
-        } elseif (isset($server['SERVER_NAME']) && is_string($server['SERVER_NAME'])) {
-            $host = $server['SERVER_NAME'];
-        }
-        $host = strtolower($host);
-
-        $port = null;
-        if (isset($server['SERVER_PORT'])) {
-            $rawPort = $server['SERVER_PORT'];
-            if (is_int($rawPort) || is_string($rawPort)) {
-                $validated = filter_var((string) $rawPort, FILTER_VALIDATE_INT, [
-                    'options' => ['min_range' => 1, 'max_range' => 65535],
-                ]);
-                $port = $validated !== false ? (int) $validated : null;
-            }
-        }
-
-        // Remove port from host if present and extract it
-        $extractedPort = null;
-        if (preg_match('/^(\[[0-9a-f:.]+\]|[^:]+):(\d+)$/i', $host, $matches)) {
-            $host = $matches[1];
-            $extractedPort = (int) $matches[2];
-        }
-
-        // Use extracted port from HTTP_HOST if available, otherwise use SERVER_PORT
-        $port = $extractedPort ?? $port;
-
-        $path = '/';
-        if (isset($server['REQUEST_URI']) && is_string($server['REQUEST_URI'])) {
-            $path = strtok($server['REQUEST_URI'], '?') ?: '/';
-        }
-
-        $query = '';
-        if (isset($server['QUERY_STRING']) && is_string($server['QUERY_STRING'])) {
-            $query = $server['QUERY_STRING'];
-        }
-
-        $user = isset($server['PHP_AUTH_USER']) && is_string($server['PHP_AUTH_USER'])
-            ? $server['PHP_AUTH_USER'] : '';
-        $pass = isset($server['PHP_AUTH_PW']) && is_string($server['PHP_AUTH_PW'])
-            ? $server['PHP_AUTH_PW'] : '';
-
-        $uriString = $scheme . '://';
+        $uriString = "{$scheme}://";
 
         if ($user !== '') {
-            $uriString .= rawurlencode($user);
+            $uriString .= \rawurlencode($user);
             if ($pass !== '') {
-                $uriString .= ':' . rawurlencode($pass);
+                $uriString .= ':' . \rawurlencode($pass);
             }
             $uriString .= '@';
         }
 
         $uriString .= $host;
 
-        if ($port !== null) {
-            $defaultPort = $scheme === 'https' ? 443 : 80;
-            if ($port !== $defaultPort) {
-                $uriString .= ':' . (string) $port;
-            }
+        $defaultPort = $scheme === 'https' ? 443 : 80;
+        if ($port !== null && $port !== $defaultPort) {
+            $uriString .= ":{$port}";
         }
 
         $uriString .= $path;
 
         if ($query !== '') {
-            $uriString .= '?' . $query;
+            $uriString .= "?{$query}";
         }
 
         return new Uri($uriString);
+    }
+
+    /**
+     * @param mixed[] $server
+     */
+    private static function resolveScheme(array $server): string
+    {
+        if (isset($server['HTTPS']) && $server['HTTPS'] !== 'off') {
+            return 'https';
+        }
+
+        $scheme = self::resolveString($server, 'REQUEST_SCHEME') ?? self::resolveString($server, 'HTTP_X_FORWARDED_PROTO');
+
+        return $scheme !== null ? \strtolower($scheme) : 'http';
+    }
+
+    /**
+     * Determines host and port together, since a `Host: host:port` header
+     * value has to win over `SERVER_PORT` once the two are split apart.
+     *
+     * @param mixed[] $server
+     * @return array{0: string, 1: ?int}
+     */
+    private static function resolveHostAndPort(array $server): array
+    {
+        $host = self::resolveString($server, 'HTTP_HOST') ?? self::resolveString($server, 'SERVER_NAME') ?? 'localhost';
+        $host = \strtolower($host);
+
+        $serverPort = null;
+        if (isset($server['SERVER_PORT']) && (\is_int($server['SERVER_PORT']) || \is_string($server['SERVER_PORT']))) {
+            $validated = \filter_var((string) $server['SERVER_PORT'], \FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1, 'max_range' => 65535],
+            ]);
+            $serverPort = $validated !== false ? $validated : null;
+        }
+
+        if (\preg_match('/^(\[[0-9a-f:.]+\]|[^:]+):(\d+)$/i', $host, $matches)) {
+            return [$matches[1], (int) $matches[2]];
+        }
+
+        return [$host, $serverPort];
+    }
+
+    /**
+     * @param mixed[] $server
+     */
+    private static function resolveString(array $server, string $key): ?string
+    {
+        return isset($server[$key]) && \is_scalar($server[$key]) ? (string) $server[$key] : null;
     }
 }

@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Temant\HttpCore;
 
 /**
- * Standard HTTP request methods (RFC 9110).
+ * The standard HTTP request methods defined by RFC 9110 §9.
  *
- * This is an additive convenience API; {@see Request} accepts any
- * extension-token method string regardless of whether it has a case here.
+ * This is a convenience API, not a constraint: {@see Request} accepts any
+ * extension-token method string (`PURGE`, `LOCK`, ...) whether or not it
+ * has a case here - see {@see Request::__construct()}.
  */
 enum HttpMethod: string
 {
@@ -23,24 +24,26 @@ enum HttpMethod: string
     case Connect = 'CONNECT';
 
     /**
-     * A safe method is one that doesn't alter server state (RFC 9110 §9.2.1).
+     * Whether this method is defined as "safe" - it only retrieves data
+     * and is not expected to change server state (RFC 9110 §9.2.1).
      */
     public function isSafe(): bool
     {
         return match ($this) {
             self::Get, self::Head, self::Options, self::Trace => true,
-            default => false,
+            self::Post, self::Put, self::Patch, self::Delete, self::Connect => false,
         };
     }
 
     /**
-     * An idempotent method produces the same server state whether called once or many times (RFC 9110 §9.2.2).
+     * Whether repeating this request one time has the same effect on
+     * server state as repeating it many times (RFC 9110 §9.2.2).
      */
     public function isIdempotent(): bool
     {
         return match ($this) {
             self::Get, self::Head, self::Options, self::Trace, self::Put, self::Delete => true,
-            default => false,
+            self::Post, self::Patch, self::Connect => false,
         };
     }
 }

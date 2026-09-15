@@ -12,32 +12,26 @@ use Temant\HttpCore\UploadedFile;
 
 /**
  * PSR-17 factory for {@see UploadedFile} instances, built from an
- * already-open, readable stream (with a real underlying file so it can
- * later be moved).
+ * already-open, readable stream backed by a real file (so it can later be
+ * moved with {@see UploadedFile::moveTo()}).
  */
 class UploadedFileFactory implements UploadedFileFactoryInterface
 {
     /**
-     * {@inheritdoc}
+     * @throws InvalidArgumentException if `$stream` isn't readable or isn't backed by a real file.
      */
     #[\Override]
     public function createUploadedFile(
         StreamInterface $stream,
         ?int $size = null,
-        int $error = UPLOAD_ERR_OK,
+        int $error = \UPLOAD_ERR_OK,
         ?string $clientFilename = null,
         ?string $clientMediaType = null
     ): UploadedFileInterface {
-        $file = $stream->getMetadata('uri');
-
-        if (!is_string($file) || !$stream->isReadable()) {
+        if (!\is_string($stream->getMetadata('uri')) || !$stream->isReadable()) {
             throw new InvalidArgumentException('File is not readable.');
         }
 
-        if ($size === null) {
-            $size = $stream->getSize();
-        }
-
-        return new UploadedFile($stream, $clientFilename, $clientMediaType, $size, $error);
+        return new UploadedFile($stream, $clientFilename, $clientMediaType, $size ?? $stream->getSize(), $error);
     }
 }
