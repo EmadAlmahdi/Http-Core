@@ -110,6 +110,27 @@ final class UriTest extends TestCase
         new Uri()->withScheme("http\n");
     }
 
+    /**
+     * Regression test: unlike path/query/fragment/userinfo, withHost()
+     * didn't validate its input at all - a raw CRLF passed straight
+     * through unencoded, which a Request deriving its Host header from
+     * this Uri would then have to defensively re-validate on every single
+     * construction. Validating once, here at the source, is both the
+     * correctness fix and what makes that downstream re-validation safe
+     * to treat as pure defense-in-depth rather than the only guard.
+     */
+    public function testWithHostRejectsControlCharacters(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new Uri()->withHost("evil.com\r\nX-Injected: 1");
+    }
+
+    public function testWithHostRejectsAuthorityDelimiters(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new Uri()->withHost('evil.com/@attacker.com');
+    }
+
     public function testFilterPathEncodesSpecialCharacters(): void
     {
         $uri = new Uri();

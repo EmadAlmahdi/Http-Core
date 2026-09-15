@@ -67,6 +67,19 @@ final readonly class Uri implements UriInterface, Stringable
      */
     private const string SCHEME_PATTERN = '/^[a-z][a-z0-9+\-.]*$/iD';
 
+    /**
+     * Rejects a host containing a C0 control character, DEL, or a
+     * character that has structural meaning in a URI authority or an HTTP
+     * request line (`/ ? # @ \`). Unlike the path/query/fragment/userinfo
+     * components, an invalid host isn't percent-encoded - a percent-encoded
+     * hostname isn't something DNS or an HTTP client would resolve
+     * meaningfully, so this rejects instead, matching every other PSR-7
+     * implementation. This is a "contains" check (no `^`/`$` anchors), so
+     * the PCRE trailing-newline anchor gotcha documented above doesn't
+     * apply to it.
+     */
+    private const string HOST_INVALID_PATTERN = '/[\x00-\x20\x7F\/?#@\\\\]/';
+
     /** Characters `rawurlencode()` never touches. */
     private const string UNRESERVED_PATTERN = '/^[A-Za-z0-9\-._~]*$/D';
 
@@ -141,7 +154,7 @@ final readonly class Uri implements UriInterface, Stringable
 
         $this->scheme = isset($parts['scheme']) ? \strtolower($parts['scheme']) : '';
         $this->userInfo = $this->buildUserInfo($parts['user'] ?? null, $parts['pass'] ?? null);
-        $this->host = isset($parts['host']) ? \strtolower($parts['host']) : '';
+        $this->host = isset($parts['host']) ? self::filterHost(\strtolower($parts['host'])) : '';
         $this->port = $port;
         $this->path = isset($parts['path']) ? $this->filterPath($parts['path']) : '';
         $this->query = isset($parts['query']) ? $this->filterQueryOrFragment($parts['query']) : '';
@@ -235,10 +248,13 @@ final readonly class Uri implements UriInterface, Stringable
         return $userInfo === $this->userInfo ? $this : clone($this, ['userInfo' => $userInfo]);
     }
 
+    /**
+     * @throws InvalidArgumentException if `$host` contains a control character or a URI-structural character.
+     */
     #[\Override]
     public function withHost(string $host): static
     {
-        $host = \strtolower($host);
+        $host = self::filterHost(\strtolower($host));
 
         return $host === $this->host ? $this : clone($this, ['host' => $host]);
     }
@@ -370,6 +386,18 @@ final readonly class Uri implements UriInterface, Stringable
         if ($port !== null && ($port < 1 || $port > 65535)) {
             throw new InvalidArgumentException('Invalid port number in URI; must be between 1 and 65535.');
         }
+    }
+
+    /**
+     * @throws InvalidArgumentException if `$host` contains a control character or a URI-structural character.
+     */
+    private static function filterHost(string $host): string
+    {
+        if ($host === '' || !\preg_match(self::HOST_INVALID_PATTERN, $host)) {
+            return $host;
+        }
+
+        throw new InvalidArgumentException("Invalid host \"{$host}\".");
     }
 
     /**
