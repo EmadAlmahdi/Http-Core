@@ -108,11 +108,19 @@ final class ServerRequestTest extends TestCase
         $this->assertSame(['dup', 'dup'], $req->getHeader('x-test'));
     }
 
-    public function testWithAddedHeaderRejectsEmptyValue(): void
+    public function testWithAddedHeaderAllowsEmptyStringValue(): void
+    {
+        $request = new ServerRequest('GET', $this->createUriMock())
+            ->withAddedHeader('X-Test', '');
+
+        $this->assertSame([''], $request->getHeader('X-Test'));
+    }
+
+    public function testWithAddedHeaderRejectsEmptyArrayValue(): void
     {
         $this->expectException(InvalidArgumentException::class);
         new ServerRequest('GET', $this->createUriMock())
-            ->withAddedHeader('X-Fail', '');
+            ->withAddedHeader('X-Fail', []);
     }
 
     public function testWithAddedHeaderRejectsInvalidChars(): void

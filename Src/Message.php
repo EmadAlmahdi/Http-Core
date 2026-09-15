@@ -40,12 +40,34 @@ use RuntimeException;
  */
 abstract readonly class Message implements MessageInterface
 {
-    private const string PROTOCOL_PATTERN = '/^(1\.[01]|2(?:\.0)?)$/';
+    /**
+     * `D` matters here as much as it does on {@see HEADER_VALUE_PATTERN}:
+     * without it, a version string ending in a single `\n` (e.g. `"1.1\n"`)
+     * would satisfy `$` before that trailing newline and pass validation
+     * unnoticed.
+     */
+    private const string PROTOCOL_PATTERN = '/^(1\.[01]|2(?:\.0)?)$/D';
 
-    /** RFC 7230 `token` grammar: one or more of the characters below. */
-    private const string HEADER_NAME_PATTERN = '/^[!#$%&\'*+.^_`|~0-9a-zA-Z-]+$/';
+    /**
+     * RFC 7230 `token` grammar: one or more of the characters below. `D`
+     * for the same reason as {@see PROTOCOL_PATTERN} - a header name
+     * ending in a single `\n` would otherwise pass.
+     */
+    private const string HEADER_NAME_PATTERN = '/^[!#$%&\'*+.^_`|~0-9a-zA-Z-]+$/D';
 
-    private const string HEADER_VALUE_PATTERN = "/[\r\n]/";
+    /**
+     * RFC 7230 `field-value` grammar: visible US-ASCII, space, tab, and the
+     * obs-text range (0x80-0xFF, for legacy non-UTF-8 values) - an
+     * allowlist, not just a CR/LF blocklist, so it also catches other
+     * control characters (a bare NUL, BEL, vertical tab, ...) that a
+     * blocklist limited to CR/LF would let through. The `D` modifier is
+     * load-bearing: without it, PCRE's `$` matches just *before* a
+     * trailing `\n` rather than requiring the whole string be consumed,
+     * which would let a value ending in exactly one newline slip past
+     * unmatched by the character class - reopening the very injection
+     * this pattern exists to close.
+     */
+    private const string HEADER_VALUE_PATTERN = '/^[ \t\x21-\x7E\x80-\xFF]*$/D';
 
     /**
      * Header values, keyed by the exact name they were last set with.
@@ -250,26 +272,33 @@ abstract readonly class Message implements MessageInterface
 
     /**
      * Normalizes a header value (or list of values) to a list of strings in
-     * a single pass, rejecting anything containing a CR or LF - which would
-     * otherwise allow header injection.
+     * a single pass, rejecting anything outside {@see HEADER_VALUE_PATTERN}'s
+     * allowlist - most importantly a raw CR or LF, which would otherwise
+     * allow header injection ("response splitting"), but also any other
+     * control character no legitimate header value needs.
+     *
+     * An empty *list* of values (`[]`) is rejected - there's nothing to set
+     * the header to - but a single empty string is a valid value (e.g. an
+     * `ETag: ` with nothing after the colon) and is left alone, matching
+     * every other PSR-7 implementation.
      *
      * @param string|string[] $value
      * @return string[]
-     * @throws InvalidArgumentException for an empty or invalid header value.
+     * @throws InvalidArgumentException if `$value` is an empty array, or any value fails the allowlist.
      */
     protected function filterHeaderValue(array|string $value): array
     {
         $values = \is_array($value) ? $value : [$value];
 
-        if ($values === [] || $value === '') {
-            throw new InvalidArgumentException('Header value cannot be empty.');
+        if ($values === []) {
+            throw new InvalidArgumentException('Header value cannot be an empty array.');
         }
 
         $normalized = [];
         foreach ($values as $item) {
             $item = (string) $item;
-            if (\preg_match(self::HEADER_VALUE_PATTERN, $item)) {
-                throw new InvalidArgumentException('Header values cannot contain CR or LF characters.');
+            if (!\preg_match(self::HEADER_VALUE_PATTERN, $item)) {
+                throw new InvalidArgumentException("Invalid header value: \"{$item}\".");
             }
             $normalized[] = $item;
         }

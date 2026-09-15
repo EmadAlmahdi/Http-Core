@@ -56,17 +56,26 @@ final readonly class Uri implements UriInterface, Stringable
         'ftp' => 21,
     ];
 
-    private const string SCHEME_PATTERN = '/^[a-z][a-z0-9+\-.]*$/i';
+    /**
+     * The `D` modifier on this and the three patterns below is required,
+     * not decorative: without it, PCRE's `$` is satisfied just *before* a
+     * trailing `\n` rather than requiring the whole string to match, so a
+     * value ending in exactly one newline would pass unmatched by the
+     * character class. For the three "is this already safe to skip
+     * encoding" fast paths below, that would mean returning a component
+     * with a raw, unencoded newline still in it.
+     */
+    private const string SCHEME_PATTERN = '/^[a-z][a-z0-9+\-.]*$/iD';
 
     /** Characters `rawurlencode()` never touches. */
-    private const string UNRESERVED_PATTERN = '/^[A-Za-z0-9\-._~]*$/';
+    private const string UNRESERVED_PATTERN = '/^[A-Za-z0-9\-._~]*$/D';
 
     /**
      * As {@see UNRESERVED_PATTERN}, plus the path separator - used to skip
      * encoding entirely for the common case of an already-clean path
      * (e.g. `/api/v1/users/123`).
      */
-    private const string PATH_SAFE_PATTERN = '/^[A-Za-z0-9\-._~\/]*$/';
+    private const string PATH_SAFE_PATTERN = '/^[A-Za-z0-9\-._~\/]*$/D';
 
     /**
      * Fast-path check for query/fragment: every character RFC 3986 allows
@@ -74,7 +83,7 @@ final readonly class Uri implements UriInterface, Stringable
      * bare `?`). If the whole string already matches, nothing needs
      * encoding.
      */
-    private const string QUERY_FRAGMENT_SAFE_PATTERN = "/^[A-Za-z0-9\\-._~!$&'()*+,;=:@\\/?]*$/";
+    private const string QUERY_FRAGMENT_SAFE_PATTERN = "/^[A-Za-z0-9\\-._~!$&'()*+,;=:@\\/?]*$/D";
 
     /**
      * Matches a run of characters that need percent-encoding in a path: a

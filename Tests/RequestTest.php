@@ -62,6 +62,19 @@ final class RequestTest extends TestCase
         new Request('BAD METHOD', $uri);
     }
 
+    /**
+     * Regression test: without PCRE's `D` modifier, `$` is satisfied just
+     * before a trailing `\n`, so `"GET\n"` used to pass method validation
+     * unmatched by the character class.
+     */
+    public function testConstructorThrowsOnMethodEndingInNewline(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $uri = $this->createUriMock();
+        new Request("GET\n", $uri);
+    }
+
     public function testGetRequestTargetWithQuery(): void
     {
         $uri = $this->createUriMock('/abc', 'x=1&y=2');

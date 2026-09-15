@@ -101,11 +101,19 @@ final class ResponseTest extends TestCase
         $this->assertSame(['a', 'b'], $new->getHeader('X-Test'));
     }
 
-    public function testWithHeaderThrowsOnEmptyValue(): void
+    public function testWithHeaderAllowsEmptyStringValue(): void
+    {
+        $response = new Response();
+        $new = $response->withHeader('X-Test', '');
+
+        $this->assertSame([''], $new->getHeader('X-Test'));
+    }
+
+    public function testWithHeaderThrowsOnEmptyArrayValue(): void
     {
         $response = new Response();
         $this->expectException(InvalidArgumentException::class);
-        $response->withHeader('X-Test', '');
+        $response->withHeader('X-Test', []);
     }
 
     public function testWithHeaderThrowsOnCRLF(): void
@@ -113,5 +121,24 @@ final class ResponseTest extends TestCase
         $response = new Response();
         $this->expectException(InvalidArgumentException::class);
         $response->withHeader('X-Test', "bad\r\nvalue");
+    }
+
+    /**
+     * Regression test: without PCRE's `D` modifier, `$` is satisfied just
+     * before a trailing `\n`, so a value ending in exactly one newline
+     * used to slip past the character class entirely unmatched.
+     */
+    public function testWithHeaderThrowsOnValueEndingInNewline(): void
+    {
+        $response = new Response();
+        $this->expectException(InvalidArgumentException::class);
+        $response->withHeader('X-Test', "value\n");
+    }
+
+    public function testWithHeaderThrowsOnNameEndingInNewline(): void
+    {
+        $response = new Response();
+        $this->expectException(InvalidArgumentException::class);
+        $response->withHeader("X-Test\n", 'value');
     }
 }

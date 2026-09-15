@@ -101,7 +101,7 @@ class UriFactory implements UriFactoryInterface
             $serverPort = $validated !== false ? $validated : null;
         }
 
-        if (\preg_match('/^(\[[0-9a-f:.]+\]|[^:]+):(\d+)$/i', $host, $matches)) {
+        if (\preg_match('/^(\[[0-9a-f:.]+\]|[^:]+):(\d+)$/iD', $host, $matches)) {
             return [$matches[1], (int) $matches[2]];
         }
 

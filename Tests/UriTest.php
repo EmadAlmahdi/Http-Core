@@ -91,6 +91,25 @@ final class UriTest extends TestCase
         $this->assertSame('/a%20path/with%20spaces', $uri->getPath());
     }
 
+    /**
+     * Regression test: PCRE's `$` matches just *before* a trailing `\n`
+     * unless the pattern uses the `D` modifier, so a path ending in
+     * exactly one newline used to slip past the "already safe, skip
+     * encoding" fast path unmatched by its character class, and came back
+     * out of getPath() with the raw `\n` still in it.
+     */
+    public function testPathEndingInNewlineIsEncoded(): void
+    {
+        $uri = new Uri()->withPath("/a/b\n");
+        $this->assertSame('/a/b%0A', $uri->getPath());
+    }
+
+    public function testSchemeEndingInNewlineThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new Uri()->withScheme("http\n");
+    }
+
     public function testFilterPathEncodesSpecialCharacters(): void
     {
         $uri = new Uri();

@@ -32,8 +32,14 @@ use Psr\Http\Message\UriInterface;
  */
 readonly class Request extends Message implements RequestInterface
 {
-    /** Same grammar as {@see Message::HEADER_NAME_PATTERN}: RFC 7230's `token`. */
-    private const string METHOD_PATTERN = '/^[!#$%&\'*+.^_`|~0-9a-z-]+$/i';
+    /**
+     * Same grammar as {@see Message::HEADER_NAME_PATTERN}: RFC 7230's
+     * `token`. The `D` modifier is required, not decorative - without it,
+     * PCRE's `$` matches just before a trailing `\n`, so a method ending
+     * in exactly one newline (e.g. `"GET\n"`) would satisfy this pattern
+     * unmatched by the character class and pass validation.
+     */
+    private const string METHOD_PATTERN = '/^[!#$%&\'*+.^_`|~0-9a-z-]+$/iD';
 
     private const string REQUEST_TARGET_PATTERN = '/\s/';
 
